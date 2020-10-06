@@ -1,0 +1,38 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "Access Bucket",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": [
+                    "arn:aws:iam::348479767958:root",
+                    "arn:aws:iam::616838081431:root",
+                    "arn:aws:iam::882750217250:root"
+                ]
+            },
+            "Action": [
+                "s3:GetBucketLocation",
+                "s3:ListBucket"
+            ],
+            "Resource": "arn:aws:s3:::bpportal-artifacts-us-west-2"
+        },
+        {
+            "Sid": "Get templates from bucket",
+            "Effect": "Allow",
+            "Principal": {
+                "AWS": [
+                    "arn:aws:iam::348479767958:root",
+                    "arn:aws:iam::616838081431:root",
+                    "arn:aws:iam::882750217250:root"
+                ]
+            },
+            "Action": [
+                "s3:GetObject",
+                "s3:GetObjectVersion",
+                "s3:PutObject"
+            ],
+            "Resource": "arn:aws:s3:::bpportal-artifacts-us-west-2/*"
+        }
+    ]
+}
