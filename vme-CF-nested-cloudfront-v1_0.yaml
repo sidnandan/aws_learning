@@ -1,0 +1,280 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: VME - Create cloudfront distribution for TLS 1.2 enforcement.
+
+Parameters:
+  DataBucketName:
+    Type: String
+    Default: vme-unscanned-data-bucket
+  RawMediaBucketName:
+    Type: String
+    Default: vme-raw-media-files
+  RawAdhocMediaBucketName:
+    Type: String
+    Default: vme-raw-adhoc-media-files
+  EdgeLambdaName:
+    Type: String
+    Default: "AddAclHeaderTest"
+  ACMCertificateArn:
+    Type: String
+    Default: "arn:aws:acm:us-east-1:833552741498:certificate/69127d4f-0eaa-43d2-b1a1-93ef8fe18ae0"
+  RoleLambdaExecutor:
+    Type: String
+    Default: OneCloud/LambdaCustomExecution
+  CodeCommitInfraLambdaFolder:
+    Type: String
+    Default: lambdas
+  LambdaZipAddAclHeaderZip:
+    Type: String
+    Default: "add-acl-header.zip"
+  LambdaAddCloudfrontTriggerZip:
+    Type: String
+    Default: "add-cloudfront-trigger.zip"
+  LambdaEdgeFunctionName:
+    Type: String
+    Default: "AddAclHeaderLambda"
+  LambdaPresignedAlias:
+    Type: String
+    Default: ""
+  
+Mappings:
+  S3BucketMap:
+    "us-east-1":
+      "S3BucketLambdaJars": "vme-artifacts-us-east-1"
+    "us-west-2":
+      "S3BucketLambdaJars": "vme-artifacts-us-west-2"
+
+Resources:
+
+      
+#***********************Data bucket cloudfront**************************#
+  DataBucketOAI:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties: 
+       CloudFrontOriginAccessIdentityConfig:
+         Comment: !Sub "OAI-${DataBucketName}"
+
+  DataBucketDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !Sub "${DataBucketName}.s3.amazonaws.com"
+            Id: DataBucketS3Origin
+            ConnectionAttempts: 3
+            ConnectionTimeout: 10
+            S3OriginConfig:
+              OriginAccessIdentity: !Join ['', ["origin-access-identity/cloudfront/", !Ref DataBucketOAI]]
+        Enabled: true
+        Comment: Required to enforce TLS 1.2
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - DELETE
+            - GET
+            - HEAD
+            - OPTIONS
+            - PATCH
+            - POST
+            - PUT
+          TargetOriginId: DataBucketS3Origin
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+
+          TrustedSigners:
+            - !Ref "AWS::AccountId"
+          ViewerProtocolPolicy: https-only
+        PriceClass: PriceClass_All
+        ViewerCertificate:
+          AcmCertificateArn: !Ref ACMCertificateArn
+          SslSupportMethod: 'sni-only'
+          MinimumProtocolVersion: 'TLSv1.2_2018'
+  
+  DataBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Ref DataBucketName
+      PolicyDocument:
+        Version: "2008-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              CanonicalUser: !GetAtt DataBucketOAI.S3CanonicalUserId
+            Action: 
+              - "s3:GetObject"
+              - "s3:PutObject"
+            Resource: !Sub "arn:aws:s3:::${DataBucketName}/*"
+
+#***********************Raw media bucket cloudfront**************************#
+
+  RawMediaBucketOAI:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties: 
+       CloudFrontOriginAccessIdentityConfig:
+         Comment: !Sub "OAI-${RawMediaBucketName}"
+
+  RawMediaBucketDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !Sub "${RawMediaBucketName}.s3.amazonaws.com"
+            Id: RawMediaBucketS3Origin
+            ConnectionAttempts: 3
+            ConnectionTimeout: 10
+            S3OriginConfig:
+              OriginAccessIdentity: !Join ['', ["origin-access-identity/cloudfront/", !Ref RawMediaBucketOAI]]
+        Enabled: true
+        Comment: Required to enforce TLS 1.2
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - DELETE
+            - GET
+            - HEAD
+            - OPTIONS
+            - PATCH
+            - POST
+            - PUT
+          TargetOriginId: RawMediaBucketS3Origin
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+
+          TrustedSigners:
+            - !Ref "AWS::AccountId"
+          ViewerProtocolPolicy: https-only
+        PriceClass: PriceClass_All
+        ViewerCertificate:
+          AcmCertificateArn: !Ref ACMCertificateArn
+          SslSupportMethod: 'sni-only'
+          MinimumProtocolVersion: 'TLSv1.2_2018'
+  
+  RawMediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Ref RawMediaBucketName
+      PolicyDocument:
+        Version: "2008-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              CanonicalUser: !GetAtt RawMediaBucketOAI.S3CanonicalUserId
+            Action: 
+              - "s3:GetObject"
+              - "s3:PutObject"
+            Resource: !Sub "arn:aws:s3:::${RawMediaBucketName}/*"
+
+#***********************Raw Adhoc media bucket cloudfront**************************#
+
+  RawAdhocMediaBucketOAI:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties: 
+       CloudFrontOriginAccessIdentityConfig:
+         Comment: !Sub "OAI-${RawAdhocMediaBucketName}"
+
+  RawAdhocMediaBucketDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !Sub "${RawAdhocMediaBucketName}.s3.amazonaws.com"
+            Id: RawAdhocMediaBucketS3Origin
+            ConnectionAttempts: 3
+            ConnectionTimeout: 10
+            S3OriginConfig:
+              OriginAccessIdentity: !Join ['', ["origin-access-identity/cloudfront/", !Ref RawAdhocMediaBucketOAI]]
+        Enabled: true
+        Comment: Required to enforce TLS 1.2
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - DELETE
+            - GET
+            - HEAD
+            - OPTIONS
+            - PATCH
+            - POST
+            - PUT
+          TargetOriginId: RawAdhocMediaBucketS3Origin
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+
+          TrustedSigners:
+            - !Ref "AWS::AccountId"
+          ViewerProtocolPolicy: https-only
+        PriceClass: PriceClass_All
+        ViewerCertificate:
+          AcmCertificateArn: !Ref ACMCertificateArn
+          SslSupportMethod: 'sni-only'
+          MinimumProtocolVersion: 'TLSv1.2_2018'
+  
+  RawAdhocMediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Ref RawAdhocMediaBucketName
+      PolicyDocument:
+        Version: "2008-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              CanonicalUser: !GetAtt RawAdhocMediaBucketOAI.S3CanonicalUserId
+            Action: 
+              - "s3:GetObject"
+              - "s3:PutObject"
+            Resource: !Sub "arn:aws:s3:::${RawAdhocMediaBucketName}/*"
+
+  AddCloudfrontTriggerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: lambda_function.lambda_handler
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: python3.8
+      Code:
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Sub "${CodeCommitInfraLambdaFolder}/${LambdaAddCloudfrontTriggerZip}"
+      Timeout: 300
+      TracingConfig:
+       Mode: "Active"
+      Environment:
+        Variables:
+          CodeS3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+          CodeS3BucketKey: !Sub "${CodeCommitInfraLambdaFolder}/${LambdaZipAddAclHeaderZip}"
+          FunctionName: !Ref  LambdaEdgeFunctionName
+          LambdaHandler: lambda_function.lambda_handler
+          Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+          Runtime: python3.8
+          DistributionIds: !Join [",",[!Ref DataBucketDistribution, !Ref RawMediaBucketDistribution, !Ref RawAdhocMediaBucketDistribution]]
+          RawAdhocMediaDistributionDomainName: !GetAtt RawAdhocMediaBucketDistribution.DomainName
+          RawMediaDistributionDomainName: !GetAtt RawMediaBucketDistribution.DomainName
+          UnscannedDistributionDomainName: !GetAtt DataBucketDistribution.DomainName
+          LambdaPresignedAlias: !Ref LambdaPresignedAlias
+          
+
+
+
+
+  LambdaCreateTriggers:
+    Type: Custom::LambdaResource
+    DependsOn:
+      - AddCloudfrontTriggerLambda
+    Properties:
+      ServiceToken: !GetAtt AddCloudfrontTriggerLambda.Arn
+      Region: !Sub "{AWS::Region}"
+
+
+Outputs:
+  DataBucketDistributionId:
+    Value: !Ref DataBucketDistribution
+  RawMediaDistributionId:
+    Value: !Ref RawMediaBucketDistribution
+  RawAdhocDistributionId:
+    Value: !Ref RawAdhocMediaBucketDistribution
+  DataBucketDistributionDomain:
+    Value: !GetAtt DataBucketDistribution.DomainName
+  RawMediaDistributionDomain:
+    Value: !GetAtt RawMediaBucketDistribution.DomainName
+  RawAdhocDistributionDomain:
+    Value: !GetAtt RawAdhocMediaBucketDistribution.DomainName
+    

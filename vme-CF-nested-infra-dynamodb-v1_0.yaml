@@ -1,0 +1,280 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VME - DynamoDB Infrastructure
+
+Parameters:
+  DynamoDBAutoScaleThreshold:
+    Type: String
+    Default: 70.0
+
+
+Mappings:
+  DynamoDBThresholdMap: 
+    # Begin Prod
+    "612588860854": 
+      "vendordataRCU": "10"
+      "vendordataWCU": "10"
+      "vendordataAutoScaleMax": "10000"
+      "vmekinesisdataRCU": "10"
+      "vmekinesisdataWCU": "10"
+      "vmekinesisdataAutoScaleMax": "10000"
+      "vmefilescandataRCU": "10"
+      "vmefilescandataWCU": "10"
+      "vmefilescandataAutoScaleMax": "10000"
+    # End Prod
+    # Begin Staging
+    "999023218900":
+      "vendordataRCU": "5"
+      "vendordataWCU": "5"
+      "vendordataAutoScaleMax": "10000"
+      "vmekinesisdataRCU": "5"
+      "vmekinesisdataWCU": "5"
+      "vmekinesisdataAutoScaleMax": "10000"
+      "vmefilescandataRCU": "5"
+      "vmefilescandataWCU": "5"
+      "vmefilescandataAutoScaleMax": "10000"
+    # End Staging
+    # Begin Dev
+    "833552741498":
+      "vendordataRCU": "5"
+      "vendordataWCU": "5"
+      "vendordataAutoScaleMax": "10000"
+      "vmekinesisdataRCU": "5"
+      "vmekinesisdataWCU": "5"
+      "vmekinesisdataAutoScaleMax": "10000"
+      "vmefilescandataRCU": "5"
+      "vmefilescandataWCU": "5"
+      "vmefilescandataAutoScaleMax": "10000"
+    # End Dev
+
+Resources:
+  # vendor_data - table creation
+  DynamoDBvendordataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: "vendorId"
+          AttributeType: "S"
+        - AttributeName: "batchNumber"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "vendorId"
+          KeyType: "HASH"
+        - AttributeName: "batchNumber"
+          KeyType: "RANGE"
+      ProvisionedThroughput:
+        ReadCapacityUnits: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vendordataRCU"]
+        WriteCapacityUnits: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vendordataWCU"]
+      TableName: "vendor_data"
+      StreamSpecification:
+        StreamViewType: "NEW_AND_OLD_IMAGES"
+  # vendor_data - write autoscaling target
+  DynamoDBvendordataWriteCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vendordataAutoScaleMax"]
+      MinCapacity: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vendordataWCU"]
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoDBvendordataTable
+      #ask where is this used
+      RoleARN: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/dynamodb.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_DynamoDBTable"
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+  # vendor_data - write autoscaling policy
+  DynamoDBvendordataWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: vendordataWriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref DynamoDBvendordataWriteCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: !Ref DynamoDBAutoScaleThreshold
+        ScaleInCooldown: 0
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+  # vendor_data - read autoscaling target
+  DynamoDBvendordataReadCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn: DynamoDBvendordataWriteCapacityScalableTarget
+    Properties:
+      MaxCapacity: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vendordataAutoScaleMax"]
+      MinCapacity: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vendordataRCU"]
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoDBvendordataTable
+      RoleARN: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/dynamodb.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_DynamoDBTable"
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+  # vendor_data - read autoscaling policy
+  DynamoDBvendordataReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: vendordataReadAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref DynamoDBvendordataReadCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: !Ref DynamoDBAutoScaleThreshold
+        ScaleInCooldown: 0
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+
+  DynamoDBVmeKinesisDataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: "batchNumber"
+          AttributeType: "S"
+        - AttributeName: "fileName"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "batchNumber"
+          KeyType: "HASH"
+        - AttributeName: "fileName"
+          KeyType: "RANGE"
+      ProvisionedThroughput:
+        ReadCapacityUnits: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vmekinesisdataRCU"]
+        WriteCapacityUnits: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vmekinesisdataWCU"]
+      TableName: "vme_kinesis_data"
+      StreamSpecification:
+        StreamViewType: "NEW_AND_OLD_IMAGES"
+  # kinesis_data - write autoscaling target
+  DynamoDBVmeKinesisDataWriteCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vmekinesisdataAutoScaleMax"]
+      MinCapacity: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vmekinesisdataWCU"]
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoDBVmeKinesisDataTable
+      #ask where is this useds
+      RoleARN: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/dynamodb.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_DynamoDBTable"
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+  # kinesis_data - write autoscaling policy
+  DynamoDBVmeKinesisDataWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: vendordataWriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref DynamoDBVmeKinesisDataWriteCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: !Ref DynamoDBAutoScaleThreshold
+        ScaleInCooldown: 0
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+  # kinesis_data - read autoscaling target
+  DynamoDBVmeKinesisDataReadCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn: DynamoDBVmeKinesisDataWriteCapacityScalableTarget
+    Properties:
+      MaxCapacity: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vmekinesisdataAutoScaleMax"]
+      MinCapacity: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vmekinesisdataRCU"]
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoDBVmeKinesisDataTable
+      RoleARN: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/dynamodb.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_DynamoDBTable"
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+  # kinesis_data - read autoscaling policy
+  DynamoDBVmeKinesisDataReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: vendordataReadAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref DynamoDBVmeKinesisDataReadCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: !Ref DynamoDBAutoScaleThreshold
+        ScaleInCooldown: 0
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+
+  DynamoDBVmeFileScanDataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      AttributeDefinitions:
+        - AttributeName: "batchNumber"
+          AttributeType: "S"
+        - AttributeName: "fileName"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "batchNumber"
+          KeyType: "HASH"
+        - AttributeName: "fileName"
+          KeyType: "RANGE"
+      ProvisionedThroughput:
+        ReadCapacityUnits: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vmefilescandataRCU"]
+        WriteCapacityUnits: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vmefilescandataWCU"]
+      TableName: "vme_filescan_table"
+      StreamSpecification:
+        StreamViewType: "NEW_AND_OLD_IMAGES"
+  # kinesis_data - write autoscaling target
+  DynamoDBVmeFileScanWriteCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vmefilescandataAutoScaleMax"]
+      MinCapacity: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vmefilescandataWCU"]
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoDBVmeFileScanDataTable
+      #ask where is this useds
+      RoleARN: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/dynamodb.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_DynamoDBTable"
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+  # kinesis_data - write autoscaling policy
+  DynamoDBVmeFileScanWriteScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: vendordataWriteAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref DynamoDBVmeFileScanWriteCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: !Ref DynamoDBAutoScaleThreshold
+        ScaleInCooldown: 0
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBWriteCapacityUtilization
+  # kinesis_data - read autoscaling target
+  DynamoDBVmeFileScanReadCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn: DynamoDBVmeFileScanWriteCapacityScalableTarget
+    Properties:
+      MaxCapacity: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vmefilescandataAutoScaleMax"]
+      MinCapacity: !FindInMap [DynamoDBThresholdMap, !Ref "AWS::AccountId", "vmefilescandataRCU"]
+      ResourceId: !Join
+        - /
+        - - table
+          - !Ref DynamoDBVmeFileScanDataTable
+      RoleARN: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/dynamodb.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_DynamoDBTable"
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+  # kinesis_data - read autoscaling policy
+  DynamoDBVmeFileScanReadScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: vendordataReadAutoScalingPolicy
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref DynamoDBVmeFileScanReadCapacityScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        TargetValue: !Ref DynamoDBAutoScaleThreshold
+        ScaleInCooldown: 0
+        ScaleOutCooldown: 60
+        PredefinedMetricSpecification:
+          PredefinedMetricType: DynamoDBReadCapacityUtilization
+
+
+Outputs:  
+  DynamoDBvendordataTable:
+    Value: !Ref DynamoDBvendordataTable
+  DynamoDBVmeKinesisDataTable:
+    Value: !Ref DynamoDBVmeKinesisDataTable
+  DynamoDBVmeFileScanDataTable:
+    Value: !Ref DynamoDBVmeFileScanDataTable

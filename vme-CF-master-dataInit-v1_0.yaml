@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VME - Master for DataInit - US-WEST-2 ONLY - DynamoDB Global Table Creation
+
+Parameters:  
+  RoleLambdaExecutor:
+    Type: String
+    Default: OneCloud/LambdaCustomExecution  
+  DynamoDBvendordataTable:
+    Type: String
+    Default: "vendor_data"
+  DynamoDBkinesisdataTable:
+    Type: String
+    Default: "vme_kinesis_data"
+  MultiRegionDeployment:
+    Type: String
+    Default: "yes"
+  CodeCommitInfraCFTemplateFolder:
+    Type: String
+    Default: templates
+  CFTemplateDataInitDynamoDBGlobalTables:
+    Type: String
+    Default: vme-CF-nested-dataInit-dynamodb-globalTables-v1_0.yaml
+ 
+Conditions:
+  IsUSW2: !Equals [!Ref "AWS::Region", "us-west-2"]
+  UseGlobalTables: !And 
+    - !Equals [!Ref MultiRegionDeployment, "yes"]
+    - !Condition IsUSW2
+
+Mappings:
+  S3BucketMap: 
+    us-east-1: 
+      "S3BucketTemplates": "vme-artifacts-us-east-1"
+    us-west-2:      
+      "S3BucketTemplates": "vme-artifacts-us-west-2"
+
+Resources:
+  CloudFormationDynamoDbGlobalTablesStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: UseGlobalTables
+    Properties:
+      Parameters:        
+        RoleLambdaExecutor: !Ref RoleLambdaExecutor
+        DynamoDBvendordataTable: !Ref DynamoDBvendordataTable
+        DynamoDBkinesisdataTable: !Ref DynamoDBkinesisdataTable         
+      TemplateURL: !Sub 
+        - https://s3.amazonaws.com/${S3Bucket}/${S3Folder}/${CFTemplate}
+        - {S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketTemplates"], S3Folder: !Ref CodeCommitInfraCFTemplateFolder , CFTemplate: !Ref CFTemplateDataInitDynamoDBGlobalTables}
+      TimeoutInMinutes: 60  

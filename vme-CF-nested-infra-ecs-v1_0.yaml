@@ -1,0 +1,260 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VME - ECS,S3 and Lambda - US-EAST-1 ONLY 1
+
+Parameters:
+
+  RoleECSExecutor:
+    Type: String
+    Default: OneCloud/ECSTaskCustomRole
+  S3ClamAVDBBucket:
+    Type: String
+    Default: vme-clamavdbs-stage
+  ECSClusterName:
+    Type: String
+    Default: vmefilescan-cluster
+  ECSClamDownloadTaskDefinitionName:
+    Type: String
+    Default: vmeclamavdownloaddb-task
+  ECSFileScanTaskDefinitionName:
+    Type: String
+    Default: vmecfilescan-task
+  ECSKinesisTaskDefinitionName:
+    Type: String
+    Default: vme-kinesis-task
+  ECSClamDownloadContainerName:
+    Type: String
+    Default: vmeclamavdownloaddb-container
+  ECRRepoClamDownloadImageURI:
+    Type: String
+    AllowedPattern : ".+"
+  ECSTaskClamDownloadCpuCapacity:
+    Type: Number
+    Default: 1024
+  ECSTaskClamDownloadMemoryCapacity:
+    Type: Number
+    Default: 2048
+  ECSFileScanContainerName:
+    Type: String
+    Default: vmefilescan-container
+  ECSKinesisContainerName:
+    Type: String
+    Default: vmekinesisupload-container
+  ECRRepoFileScanImageURI:
+    Type: String
+    AllowedPattern : ".+"
+  ECRRepoKinesisImageURI:
+    Type: String
+    AllowedPattern : ".+"
+  ECSTaskFileScanCpuCapacity:
+    Type: Number
+    Default: 1024
+  ECSTaskFileScanMemoryCapacity:
+    Type: Number
+    Default: 6144
+  ECSTaskKinesisCpuCapacity:
+    Type: Number
+    Default: 4096
+  ECSTaskKinesisMemoryCapacity:
+    Type: Number
+    Default: 16384
+  ECSValidationTaskDefinitionName:
+    Type: String
+    Default: ""
+  ECSTaskValidationCpuCapacity:
+    Type: Number
+    Default: 4096
+  ECSTaskValidationMemoryCapacity:
+    Type: Number
+    Default: 16384
+  ECSValidationContainerName:
+    Type: String
+    Default: ""
+  ECRRepoValidationImageURI:
+    Type: String
+    Default: ""    
+
+Resources:
+  #*****ECS Task Definition****
+  ClamAvDownloadDBTask:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      NetworkMode: awsvpc
+      Family: !Sub "${ECSClamDownloadTaskDefinitionName}"
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Sub "${ECSTaskClamDownloadCpuCapacity}"
+      Memory: !Sub "${ECSTaskClamDownloadMemoryCapacity}"
+      ExecutionRoleArn: !Sub "${RoleECSExecutor}"
+      TaskRoleArn: !Sub "${RoleECSExecutor}"
+      ContainerDefinitions:
+        - Name: !Sub "${ECSClamDownloadContainerName}"
+          Image: !Sub "${ECRRepoClamDownloadImageURI}"
+          Environment:
+            - Name: BUCKET_NAME
+              Value: !Sub "${S3ClamAVDBBucket}"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Sub ${AWS::Region}
+              awslogs-group: !Ref LogGroupClamAvDownload
+              awslogs-stream-prefix: ecs
+  
+  #*****ECS Cluster****
+  VmeFileScanCluster:
+    Type: AWS::ECS::Cluster
+    DependsOn: ClamAvDownloadDBTask
+    Properties:
+      ClusterName: !Sub "${ECSClusterName}"
+
+  #*****Log Group****   
+  LogGroupClamAvDownload:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [/ecs/, ClamAvDownloadDBTask]]
+  
+  #*****ECS Task Definition****
+  VmeFileScanTask:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      NetworkMode: awsvpc
+      Family: !Sub "${ECSFileScanTaskDefinitionName}"
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Sub "${ECSTaskFileScanCpuCapacity}"
+      Memory: !Sub "${ECSTaskFileScanMemoryCapacity}"
+      ExecutionRoleArn: !Sub "${RoleECSExecutor}"
+      TaskRoleArn: !Sub "${RoleECSExecutor}"
+      ContainerDefinitions:
+        - Name: !Sub "${ECSFileScanContainerName}"
+          Image: !Sub "${ECRRepoFileScanImageURI}"
+          Environment:
+            - Name: FILE_NAME
+              Value: overridden
+            - Name: DB_BUCKET_NAME
+              Value: overridden
+            - Name: FILE_BUCKET_NAME
+              Value: overridden
+            - Name: HEALTHY_BUCKET_NAME
+              Value: overridden
+            - Name: FILE_SCAN_REPORT_BUCKET
+              Value: overridden
+
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Sub ${AWS::Region}
+              awslogs-group: !Ref LogGroupFileScan
+              awslogs-stream-prefix: ecs
+  
+  #*****Log Group****
+  LogGroupFileScan:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [/ecs/, VmeFileScanTask]]
+  
+  #*****ECS Task Definition****
+  VmeKinesisTask:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      NetworkMode: awsvpc
+      Family: !Sub "${ECSKinesisTaskDefinitionName}"
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Sub "${ECSTaskKinesisCpuCapacity}"
+      Memory: !Sub "${ECSTaskKinesisMemoryCapacity}"
+      ExecutionRoleArn: !Sub "${RoleECSExecutor}"
+      TaskRoleArn: !Sub "${RoleECSExecutor}"
+      ContainerDefinitions:
+        - Name: !Sub "${ECSKinesisContainerName}"
+          Image: !Sub "${ECRRepoKinesisImageURI}"
+          Environment:
+            - Name: kinesisAccessKey
+              Value: overridden
+            - Name: kinesisCloudWatchEndPoint
+              Value: overridden
+            - Name: kinesisEndPoint
+              Value: overridden
+            - Name: kinesisRegion
+              Value: overridden
+            - Name: kinesisSecretKey
+              Value: overridden
+            - Name: kinesisStreamName
+              Value: overridden
+            - Name: validatedBucket
+              Value: overridden
+            - Name: sourceKeyPath
+              Value: overridden
+
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Sub ${AWS::Region}
+              awslogs-group: !Ref LogGroupKinesis
+              awslogs-stream-prefix: ecs
+  
+  #*****Log Group****
+  LogGroupKinesis:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [/ecs/, VmeKinesisTask]]
+
+ #*****ECS Task Definition****
+  VmeValidationTask:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      NetworkMode: awsvpc
+      Family: !Sub "${ECSValidationTaskDefinitionName}"
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Sub "${ECSTaskValidationCpuCapacity}"
+      Memory: !Sub "${ECSTaskValidationMemoryCapacity}"
+      ExecutionRoleArn: !Sub "${RoleECSExecutor}"
+      TaskRoleArn: !Sub "${RoleECSExecutor}"
+      ContainerDefinitions:
+        - Name: !Sub "${ECSValidationContainerName}"
+          Image: !Sub "${ECRRepoValidationImageURI}"
+          Environment:
+            - Name: batchNumber
+              Value: overridden
+            - Name: Percent
+              Value: overridden
+            - Name: RawExcelBucket
+              Value: overridden
+            - Name: SchemaBucket
+              Value: overridden
+            - Name: SchemaFileName
+              Value: overridden
+            - Name: ValidatedExcelBucket
+              Value: overridden
+            - Name: validationReports
+              Value: overridden
+            - Name: vendorId
+              Value: overridden
+            - Name: vendorName
+              Value: overridden
+
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-region: !Sub ${AWS::Region}
+              awslogs-group: !Ref LogGroupFileValidation
+              awslogs-stream-prefix: ecs
+  
+  #*****Log Group****
+  LogGroupFileValidation:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['', [/ecs/, VmeValidationTask]]
+
+Outputs:
+  LambdaEnvVarFileScanTaskDefinition:
+    Value: !Select [1 , !Split [ "/", !Ref VmeFileScanTask ]]
+  CloudWatchClamAvDownloadDBTaskDefinition:
+    Value: !Ref ClamAvDownloadDBTask
+  KinesisTaskDefinition:
+    Value: !Ref VmeKinesisTask
+  ValidationTaskDefinition:
+    Value: !Ref VmeValidationTask
+  VmeFileScanClusterArn:
+    Value: !Ref VmeFileScanCluster
+

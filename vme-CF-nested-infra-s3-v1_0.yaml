@@ -1,0 +1,497 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VME - S3 Main Infrastructure - Buckets, Permissions
+
+Parameters:
+  S3RawMediaBucket:
+    Type: String
+    Default: "vme-raw-media-files"
+  S3RawAdhocMediaBucket:
+    Type: String
+    Default: "vme-raw-adhoc-media-files"
+  S3HealthyMediaBucket:
+    Type: String
+    Default: "vme-healthy-media-files"
+  S3ScanReportBucket:
+    Type: String
+    Default: "vme-filescan-reports"
+  S3ClamAVDBBucket:
+    Type: String
+    Default: "vme-clamavdbs"
+  S3HealthyAdhocMediaBucket:
+    Type: String
+    Default: "vme-healthy-adhoc-media-files"
+  S3VendorSchemaFileBucket:
+    Type: String
+    Default: "vendor-schema"
+  S3RawCsvDataBucket:
+    Type: String
+    Default: "vme-raw-csv-data"
+  S3RawExcelDataBucket:
+    Type: String
+    Default: "vme-raw-excel-data"
+  S3ValidatedCsvDataBucket:
+    Type: String
+    Default: "vme-validated-csv-data"
+  S3ValidatedExcelDataBucket:
+    Type: String
+    Default: "vme-validated-excel-data"
+  S3ValidationReportsBucket:
+    Type: String
+    Default: "vme-file-validation-reports"
+  S3UnscannedDataBucket:
+    Type: String
+    Default: "vme-unscanned-data" 
+  LambdaRunEcsTaskFileScanName:
+    Type: String
+    Default: ""
+  LambdaRunEcsTaskKinesisUpload:
+    Type: String
+    Default: ""
+  LambdaUpdateSnowAfterFileScanName:
+    Type: String
+    Default: ""
+  LambdaUpdateSnowAfterFileValidationName:
+    Type: String
+    Default: ""
+  LambdaRunEcsTaskFileValidationName:
+    Type: String
+    Default: ""
+  RoleLambdaExecutor:
+    Type: String
+    Default: ""
+  LambdaPutFilesInSQSName:
+    Type: String
+    Default: ""
+  LambdaUpdateSnowAfterDataFileScanName:
+    Type: String
+    Default: ""
+  S3DataScanReportBucket:
+    Type: String
+    Default: "vme-data-filescan-reports"
+
+Resources:
+
+  # Custom Lambda to empty out an S3 bucket so it gets deleted when the CFN
+  # stack is deleted.
+  LambdaEmptyS3BucketForDelete:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: !Sub |
+          import json
+          import boto3
+          from botocore.vendored import requests
+
+          def handler(event, context):
+              try:
+                  if event['RequestType'] == 'Delete':
+                      s3 = boto3.resource('s3')
+                      for bucket in event["ResourceProperties"]["BucketName"]:
+                        bucket = s3.Bucket(bucket)
+                        for obj in bucket.objects.filter():
+                            s3.Object(bucket.name, obj.key).delete()
+                        bucket.object_versions.all().delete()
+                  sendResponseCfn(event, context, "SUCCESS")
+              except Exception as e:
+                  print(e)
+                  sendResponseCfn(event, context, "FAILED")
+
+          def sendResponseCfn(event, context, responseStatus):
+              response_body = {'Status': responseStatus,
+                              'Reason': 'Log stream name: ' + context.log_stream_name,
+                              'PhysicalResourceId': context.log_stream_name,
+                              'StackId': event['StackId'],
+                              'RequestId': event['RequestId'],
+                              'LogicalResourceId': event['LogicalResourceId'],
+                              'Data': json.loads("{}")}
+              requests.put(event['ResponseURL'], data=json.dumps(response_body))
+      Handler: index.handler
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: python3.6
+      Timeout: 60  
+  CustomLambdaCleanupBucketOnDelete:
+    Type: Custom::CleanupBucketOnDelete
+    Properties:
+      ServiceToken:
+        Fn::GetAtt: [ LambdaEmptyS3BucketForDelete , "Arn" ]
+      BucketName: [ !Ref VmeRawMediaFileBucket,!Ref VmeRawAdhocMediaFileBucket,!Ref VmeScanReportBucket,!Ref VmeHealthyMediaFileBucket,!Ref VmeHealthyAdhocMediaFileBucket,!Ref ClamAvDatabaseBucket,!Ref VmeVendorSchemaFileBucket,!Ref VmeRawExcelDataBucket,!Ref VmeValidatedExcelDataBucket]
+
+  ## Begin S3 buckets creation
+  VmeRawMediaFileBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3RawMediaBucket}"
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireData
+            Status: 'Enabled'
+            ExpirationInDays: 1 
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: 's3:ObjectCreated:*'
+            Function: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaRunEcsTaskFileScanName}
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:  
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+
+  S3InvokeRawLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub "${LambdaRunEcsTaskFileScanName}"
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::${S3RawMediaBucket}
+  
+  VmeRawAdhocMediaFileBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3RawAdhocMediaBucket}"
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireData
+            Status: 'Enabled'
+            ExpirationInDays: 1
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: 's3:ObjectCreated:*'
+            Function: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaRunEcsTaskFileScanName}
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:  
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+
+  S3InvokeAdhocRawLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub "${LambdaRunEcsTaskFileScanName}"
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::${S3RawAdhocMediaBucket}
+
+  VmeScanReportBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3ScanReportBucket}"
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireData
+            Status: 'Enabled'
+            ExpirationInDays: 365
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: 's3:ObjectCreated:*'
+            Function: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaUpdateSnowAfterFileScanName}
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:  
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256        
+
+  S3InvokeSnowLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${LambdaUpdateSnowAfterFileScanName}
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::${S3ScanReportBucket}
+
+  VmeHealthyMediaFileBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3HealthyMediaBucket}"
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireData
+            Status: 'Enabled'
+            ExpirationInDays: 1
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:  
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+  
+  VmeHealthyAdhocMediaFileBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3HealthyAdhocMediaBucket}"
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireData
+            Status: 'Enabled'
+            ExpirationInDays: 1
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:  
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+
+  ClamAvDatabaseBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3ClamAVDBBucket}"
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:  
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+  
+  VmeVendorSchemaFileBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3VendorSchemaFileBucket}"
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireData
+            Status: 'Enabled'
+            ExpirationInDays: 365
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:  
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+
+  VmeRawExcelDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3RawExcelDataBucket}"
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireData
+            Status: 'Enabled'
+            ExpirationInDays: 1
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: 's3:ObjectCreated:*'
+            Function: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaPutFilesInSQSName}
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:  
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+  S3InvokeValidationExcelPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${LambdaPutFilesInSQSName}
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::${S3RawExcelDataBucket}
+  
+  VmeRawCsvDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3RawCsvDataBucket}"
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireData
+            Status: 'Enabled'
+            ExpirationInDays: 1
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: 's3:ObjectCreated:*'
+            Function: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaPutFilesInSQSName}
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:  
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+  S3InvokeValidationCsvPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${LambdaPutFilesInSQSName}
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::${S3RawCsvDataBucket}
+
+  VmeFileValidationReportsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3ValidationReportsBucket}"
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireData
+            Status: 'Enabled'
+            ExpirationInDays: 365
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: 's3:ObjectCreated:*'
+            Function: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaUpdateSnowAfterFileValidationName}
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:  
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+  S3InvokeUpdateSnowAfterValidationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${LambdaUpdateSnowAfterFileValidationName}
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::${S3ValidationReportsBucket} 
+
+  VmeValidatedExcelDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3ValidatedExcelDataBucket}"
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireData
+            Status: 'Enabled'
+            ExpirationInDays: 1
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: 's3:ObjectCreated:*'
+            Function: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaPutFilesInSQSName}
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:  
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+
+  S3InvokeKinesisUploadExcelPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${LambdaPutFilesInSQSName}
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::${S3ValidatedExcelDataBucket} 
+
+  VmeValidatedCsvDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3ValidatedCsvDataBucket}"
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireData
+            Status: 'Enabled'
+            ExpirationInDays: 1
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: 's3:ObjectCreated:*'
+            Function: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaPutFilesInSQSName}
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:  
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+
+  S3InvokeKinesisUploadCsvPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${LambdaPutFilesInSQSName}
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::${S3ValidatedCsvDataBucket}    
+
+  VmeUnscannedDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3UnscannedDataBucket}"
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireData
+            Status: 'Enabled'
+            ExpirationInDays: 1
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: 's3:ObjectCreated:*'
+            Function: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaPutFilesInSQSName}
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:  
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+
+  S3InvokePutFilesInSQSPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${LambdaPutFilesInSQSName}
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::${VmeUnscannedDataBucket} 
+
+  VmeDatacanReportBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3DataScanReportBucket}"
+      PublicAccessBlockConfiguration: 
+        BlockPublicAcls: True
+        BlockPublicPolicy: True
+        IgnorePublicAcls: True
+        RestrictPublicBuckets: True
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireData
+            Status: 'Enabled'
+            ExpirationInDays: 365
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: 's3:ObjectCreated:*'
+            Function: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${LambdaUpdateSnowAfterDataFileScanName}
+      BucketEncryption: 
+        ServerSideEncryptionConfiguration:  
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256        
+  S3InvokeDataSnowLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${LambdaUpdateSnowAfterDataFileScanName}
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:aws:s3:::${S3DataScanReportBucket}         
+
+ 

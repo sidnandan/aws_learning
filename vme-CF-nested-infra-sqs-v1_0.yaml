@@ -1,0 +1,65 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VME - Lambda Main Infrastructure - Sqs queues
+
+Parameters:
+  VirusScanQueueName:
+    Type: String
+    Default: sqs-virus-scan-ecs-tasks
+  ValidationQueueName:
+    Type: String
+    Default: sqs-validation-ecs-tasks
+  KinesisQueueName:
+    Type: String
+    Default: ecs-kinesis-ecs-taks
+  MessageRetentionPeriodForQueues:
+    Type: Number
+    Default: 1209600
+  MaximumMessageSizeForQueues:
+    Type: Number
+    Default: 262144
+  
+
+Resources:
+
+  SQSQueueVirusScan:
+    Type: AWS::SQS::Queue
+    Properties: 
+      DelaySeconds: 0
+      MaximumMessageSize: !Ref MaximumMessageSizeForQueues
+      MessageRetentionPeriod: !Ref MessageRetentionPeriodForQueues
+      QueueName: !Sub "${VirusScanQueueName}"
+      ReceiveMessageWaitTimeSeconds: 0
+      VisibilityTimeout: 30
+  
+  SQSQueueValidation:
+    Type: AWS::SQS::Queue
+    Properties: 
+      DelaySeconds: 0
+      MaximumMessageSize: !Ref MaximumMessageSizeForQueues
+      MessageRetentionPeriod: !Ref MessageRetentionPeriodForQueues
+      QueueName: !Sub "${ValidationQueueName}"
+      ReceiveMessageWaitTimeSeconds: 0
+      VisibilityTimeout: 30
+  
+  SQSQueueKinesis:
+    Type: AWS::SQS::Queue
+    Properties: 
+      DelaySeconds: 0
+      MaximumMessageSize: !Ref MaximumMessageSizeForQueues
+      MessageRetentionPeriod: !Ref MessageRetentionPeriodForQueues
+      QueueName: !Sub "${KinesisQueueName}"
+      ReceiveMessageWaitTimeSeconds: 0
+      VisibilityTimeout: 30
+
+Outputs:
+  
+  VirusScanQueueUrl:
+    Value: !Ref SQSQueueVirusScan
+  
+  ValidationQueueUrl:
+    Value: !Ref SQSQueueValidation
+
+  KinesisQueueUrl:
+    Value: !Ref SQSQueueKinesis
+
+

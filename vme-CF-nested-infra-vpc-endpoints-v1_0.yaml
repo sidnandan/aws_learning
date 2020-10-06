@@ -1,0 +1,288 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VME - VPC Endpoints Infrastructure
+
+Mappings:
+
+  DXRouteTableIds:
+    us-east-1: 
+      "612588860854": "rtb-089a6a2cf198b8a58"
+      "999023218900": "rtb-0e06f8ed2c0ff91d3"
+      "833552741498": "rtb-0a125c1b3827f4a17"
+    us-west-2: 
+      "612588860854": "rtb-02e2e58dc55cf40c4"
+      "999023218900": "rtb-098c660926360fd10"
+
+  # DX VPCs should be requested at the TPX Public Cloud Request portal. (One-time setup per account)
+  DXVpcIds:
+    us-east-1: 
+      "612588860854": "vpc-0ad28295532250e8d"
+      "999023218900": "vpc-09f55a82f55eacfe8"
+      "833552741498": "vpc-006d54650071ee8cf"
+    us-west-2: 
+      "612588860854": "vpc-0a2543841a1849163"
+      "999023218900": "vpc-0b6c6d0682f7a90a3"
+
+  DefaultVpcIds:
+    us-east-1: 
+      "612588860854": "vpc-2fd0ac55"
+      "999023218900": "vpc-675b241d"
+      "833552741498": "vpc-61f58a1b"
+    us-west-2: 
+      "612588860854": "vpc-bf13a8c7"
+      "999023218900": "vpc-e428939c"
+
+  # Create Subnets Manually, reference their IDs here. (One-time setup per account)
+  DXSubnet1Ids:
+    us-east-1: 
+      "612588860854": "subnet-01ba99c3400da68b5"
+      "999023218900": "subnet-0a7830dd2a23f926c"
+      "833552741498": "subnet-05b421376fa5e8785"  
+    us-west-2: 
+      "612588860854": "subnet-09d264cf35825fdb1"
+      "999023218900": "subnet-02838cfa0748518cd"
+
+  DXSubnet2Ids:
+    us-east-1: 
+      "612588860854": "subnet-053a7e3b82a0ed19a"
+      "999023218900": "subnet-0ea62961b9d24bab3"
+      "833552741498": "subnet-0cf4bef5320b66c2f"  
+    us-west-2: 
+     "612588860854": "subnet-09a5e85c59fc878a7"
+     "999023218900": "subnet-01091707b0457479e"
+  
+  DXSubnet3Ids:
+    us-east-1: 
+      "612588860854": "subnet-09926ed97592b423d"
+      "999023218900": "subnet-09bddc7a4beb5f645"
+      "833552741498": "subnet-064da61392b75386d"
+    us-west-2: 
+      "612588860854": "subnet-01cfcaa1d4dc7a210"
+      "999023218900": "subnet-035e537906df115df"
+
+  DXSubnet4Ids:
+    us-east-1: 
+      "612588860854": "subnet-004708f99573807e7"
+      "999023218900": "subnet-04ce422a1519ee062"
+      "833552741498": "subnet-0cd1c9532dcb66a2f"
+    us-west-2: 
+      "612588860854": "subnet-04e7f576b96308221"
+      "999023218900": "subnet-07c0569bd4f909d36"
+
+Resources:
+
+  VpcEndpointS3:
+    Type: AWS::EC2::VPCEndpoint
+    Properties: 
+      VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      RouteTableIds: 
+        - !FindInMap [DXRouteTableIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      VpcEndpointType: Gateway
+      
+  VpcEndpointLogs:
+    Type: AWS::EC2::VPCEndpoint
+    Properties: 
+      VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.logs"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !FindInMap [DXSubnet1Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      SecurityGroupIds:
+        - !Ref SgVpcEndpoint
+
+  VpcEndpointEcs:
+    Type: AWS::EC2::VPCEndpoint
+    Properties: 
+      VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecs"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !FindInMap [DXSubnet1Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      SecurityGroupIds:
+        - !Ref SgVpcEndpoint
+
+  VpcEndpointEcsAgent:
+    Type: AWS::EC2::VPCEndpoint
+    Properties: 
+      VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecs-agent"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !FindInMap [DXSubnet1Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      SecurityGroupIds:
+        - !Ref SgVpcEndpoint
+
+  VpcEndpointEcsTelemetry:
+    Type: AWS::EC2::VPCEndpoint
+    Properties: 
+      VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecs-telemetry"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !FindInMap [DXSubnet1Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      SecurityGroupIds:
+        - !Ref SgVpcEndpoint
+
+  VpcEndpointEcrApi:
+    Type: AWS::EC2::VPCEndpoint
+    Properties: 
+      VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.api"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !FindInMap [DXSubnet1Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      SecurityGroupIds:
+        - !Ref SgVpcEndpoint
+  
+  VpcEndpointEcrDkr:
+    Type: AWS::EC2::VPCEndpoint
+    Properties: 
+      VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.dkr"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !FindInMap [DXSubnet1Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      SecurityGroupIds:
+        - !Ref SgVpcEndpoint
+  
+  VpcEndpointKms:
+    Type: AWS::EC2::VPCEndpoint
+    Properties: 
+      VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.kms"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !FindInMap [DXSubnet1Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      SecurityGroupIds:
+        - !Ref SgVpcEndpoint
+  
+  VpcEndpointDynamoDb:
+    Type: AWS::EC2::VPCEndpoint
+    Properties: 
+      VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      RouteTableIds: 
+        - !FindInMap [DXRouteTableIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.dynamodb"
+      VpcEndpointType: Gateway
+
+  VpcEndpointApiGw:
+    Type: AWS::EC2::VPCEndpoint
+    Properties: 
+      VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.execute-api"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !FindInMap [DXSubnet1Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      SecurityGroupIds:
+        - !Ref SgVpcEndpoint
+  
+  VpcEndpointKinesis:
+    Type: AWS::EC2::VPCEndpoint
+    Properties: 
+      VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.kinesis-streams"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !FindInMap [DXSubnet1Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      SecurityGroupIds:
+        - !Ref SgVpcEndpoint
+  
+  VpcEndpointSecretsManager:
+    Type: AWS::EC2::VPCEndpoint
+    Properties: 
+      VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.secretsmanager"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !FindInMap [DXSubnet1Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      SecurityGroupIds:
+        - !Ref SgVpcEndpoint
+
+  SgVpcEndpoint:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupName: !Sub "private-endpoint-sg-${AWS::Region}"
+      GroupDescription: !Sub "private-endpoint-sg-${AWS::Region}"
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Outbound All
+          FromPort: 0
+          IpProtocol: tcp
+          ToPort: 65535
+        - CidrIpv6: ::/0
+          Description: Outbound All
+          FromPort: 0
+          IpProtocol: tcp
+          ToPort: 65535
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 443
+          IpProtocol: tcp
+          ToPort: 443
+        - CidrIpv6: ::/0
+          FromPort: 443
+          IpProtocol: tcp
+          ToPort: 443
+        - CidrIp: 0.0.0.0/0
+          FromPort: 80
+          IpProtocol: tcp
+          ToPort: 80
+        - CidrIpv6: ::/0
+          FromPort: 80
+          IpProtocol: tcp
+          ToPort: 80
+        - CidrIp: 0.0.0.0/0
+          FromPort: 8080
+          IpProtocol: tcp
+          ToPort: 8080 
+        - CidrIpv6: ::/0
+          FromPort: 8080
+          IpProtocol: tcp
+          ToPort: 8080 
+      VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+  
+  SgEcsTask:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupName: !Sub "ecs-task-sg-${AWS::Region}"
+      GroupDescription: !Sub "ecs-task-sg-${AWS::Region}"
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          Description: Outbound All
+          FromPort: 0
+          IpProtocol: tcp
+          ToPort: 65535
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 443
+          IpProtocol: tcp
+          ToPort: 443
+        - CidrIp: 0.0.0.0/0
+          FromPort: 80
+          IpProtocol: tcp
+          ToPort: 80
+      VpcId: !FindInMap [DefaultVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+
+Outputs:
+  SgVpcEndpointOutput:
+    Value: !GetAtt SgVpcEndpoint.GroupId
+  SgDefaultVPCtOutput:
+    Value: !GetAtt SgEcsTask.GroupId
+  DXSubnetIdOutput:
+    Value: !FindInMap [DXSubnet1Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+  DXSubnet2dOutput:
+    Value: !FindInMap [DXSubnet2Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+  DXSubnet3dOutput:
+    Value: !FindInMap [DXSubnet3Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+  DXSubnet4dOutput:
+    Value: !FindInMap [DXSubnet4Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]

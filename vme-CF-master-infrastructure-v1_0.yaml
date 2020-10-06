@@ -1,0 +1,713 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VME - Master for Infrastructure - API GW, Route53 DNS, Lambda, DynamoDB, DataPipeline and Nested Master DataInit
+
+Parameters:
+  AppName:
+    Type: String
+    Default: VME
+  ToolingAccountId:
+    Type: String
+    Default: 853124603143
+  DevAccountId:
+    Type: String
+    Default: 833552741498
+  StagingAccountId:
+    Type: String
+    Default: 999023218900
+  ProductionAccountId:
+    Type: String
+    Default: 612588860854
+  CodeCommitInfraCFTemplateFolder:
+    Type: String
+    Default: templates
+  CodeCommitInfraOpenAPIFolder:
+    Type: String
+    Default: openapi
+  CodeCommitInfraLambdaFolder:
+    Type: String
+    Default: lambdas
+  CodeCommitInfraJarsFolder:
+    Type: String
+    Default: jars
+  S3BucketOpenAPI:
+    Type: String
+    Default: vme-artifacts-us-east-1
+  RoleApigatewayLambda:
+    Type: String
+    Default: OneCloud/APIGWtoLambda
+  RoleApigatewayCloudwatchlogs:
+    Type: String
+    Default: OneCloud/APIGWtoCWLogs
+  RoleLambdaExecutor:
+    Type: String
+    Default: OneCloud/LambdaCustomExecution
+  RoleLambdaToolingAccount:
+    Type: String
+    Default: OneCloud/LambdaToolingAccount
+  RoleToolingRoute53:
+    Type: String
+    Default: OneCloud/Route53ChangeResourceRecordSets
+  MultiRegionDeployment:
+    Type: String
+    Default: "yes"
+  CFTemplateInfrastructureDynamoDB:
+    Type: String
+    Default: vme-CF-nested-infra-dynamodb-v1_0.yaml
+  CFTemplateInfrastructureLambda:
+    Type: String
+    Default: vme-CF-nested-infra-lambda-v1_0.yaml
+  CFTemplateInfrastructureEcs:
+    Type: String
+    Default: vme-CF-nested-infra-ecs-v1_0.yaml
+  CFTemplateInfrastructureS3:
+    Type: String
+    Default: vme-CF-nested-infra-s3-v1_0.yaml
+  CFTemplateDataInitMaster:
+    Type: String
+    Default: vme-CF-master-dataInit-v1_0.yaml
+  CFTemplateDataInitDynamoDBGlobalTables:
+    Type: String
+    Default: vme-CF-nested-dataInit-dynamodb-globalTables-v1_0.yaml
+  CFTemplateInfrastructureVpcEndpoints:
+    Type: String
+    Default: vme-CF-nested-infra-vpc-endpoints-v1_0.yaml
+  OpenAPITemplate:
+    Type: String
+    Default: vme-OpenAPI-apigatewayLambda-v1_0.yaml
+  CFTemplateInfrastructureCICD:
+    Type: String
+    Default: vme-CF-nested-infra-cicd-v1_0.yaml
+  CFTemplateInfrastructureSQS:
+    Type: String
+    Default: vme-CF-nested-infra-sqs-v1_0.yaml
+  CFTemplateInfrastructureCloudfront:
+    Type: String
+    Default: vme-CF-nested-cloudfront-v1_0.yaml
+  SNSDisplayName:
+    Type: String
+    Default: vmebatchnumbertopic
+  SNSTopicName:
+    Type: String
+    Default: vmebatchnumbertopic
+  SNSValidationDisplayName:
+    Type: String
+    Default: vmebatchvalidationtopic
+  SNSValidationTopicName:
+    Type: String
+    Default: vmebatchvalidationtopic
+
+  ECSClusterName:
+    Type: String
+    Default: vmefilescan-cluster
+  ECSClamDownloadTaskDefinitionName:
+    Type: String
+    Default: vmeclamavdownloaddb-task
+  ECSClamDownloadContainerName:
+    Type: String
+    Default: vmeclamavdownloaddb-container
+  ECSValidationContainerName:
+    Type: String
+    Default: vmebatchvalidation-container
+  ECSKinesisContainerName:
+    Type: String
+    Default: vmekinesisupload-container
+  ECSTaskClamDownloadCpuCapacity:
+    Type: Number
+    Default: 1024
+  ECSTaskClamDownloadMemoryCapacity:
+    Type: Number
+    Default: 2048
+  ECSFilescanTaskDefinitionName:
+    Type: String
+    Default: vmecfilescan-task
+  ECSKinesisTaskDefinitionName:
+    Type: String
+    Default: vme-kinesis-task
+  ECSValidationTaskDefinitionName:
+    Type: String
+    Default: vme-batchvalidation-task
+  ECSFileScanContainerName:
+    Type: String
+    Default: vmefilescan-container
+  S3RawMediaBucket:
+    Type: String
+    Default: "vme-raw-media-files"
+  S3RawAdhocMediaBucket:
+    Type: String
+    Default: "vme-raw-adhoc-media-files"
+  S3HealthyMediaBucket:
+    Type: String
+    Default: "vme-healthy-media-files"
+  S3ScanReportBucket:
+    Type: String
+    Default: "vme-filescan-reports"
+  S3DataScanReportBucket:
+    Type: String
+    Default: "vme-data-filescan-reports"
+  S3ClamAVDBBucket:
+    Type: String
+    Default: "vme-clamavdbs"
+  S3HealthyAdhocMediaBucket:
+    Type: String
+    Default: "vme-healthy-adhoc-media-files"
+  S3VendorSchemaFileBucket:
+    Type: String
+    Default: "vendor-schema"
+  S3RawCsvDataBucket:
+    Type: String
+    Default: "vme-raw-csv-data"
+  S3RawExcelDataBucket:
+    Type: String
+    Default: "vme-raw-excel-data"
+  S3ValidatedCsvDataBucket:
+    Type: String
+    Default: "vme-validated-csv-data"
+  S3ValidatedExcelDataBucket:
+    Type: String
+    Default: "vme-validated-excel-data"
+  S3ValidationReportsBucket:
+    Type: String
+    Default: "vme-file-validation-reports"
+  S3UnscannedDataBucket:
+    Type: String
+    Default: "vme-unscanned-data"
+  CloudwatchEventCron:
+    Type: String
+    Default: rate(12 hours)
+  CloudwatchEventQueueCron:
+    Type: String
+    Default: rate(3 minutes)
+  CWEventRoleForEcsArn:
+    Type: String
+    Default: OneCloud/CWEventEcsTaskRole
+  EmailAlerting:
+    Type: String
+    Default: SATS-VME-VirusScan@comcast.com
+ 
+Mappings:
+  S3BucketMap: 
+    "us-east-1": 
+      "S3BucketTemplates": "vme-artifacts-us-east-1"
+    "us-west-2":      
+      "S3BucketTemplates": "vme-artifacts-us-west-2"
+
+  S3BucketEnvMap:
+    "833552741498":
+      "EnvType": "dev"
+    "999023218900":
+      "EnvType": "stage"
+    "612588860854":
+      "EnvType": "prod"
+  
+  DefaultVpcSubnet:
+    "us-east-1":
+      "612588860854": "subnet-64634003"
+      "999023218900": "subnet-047c8f49"
+      "833552741498": "subnet-2b562015"
+    "us-west-2":
+      "612588860854": "subnet-0a261741"
+      "999023218900": "subnet-534fa80e"
+
+  ACMCertMap:
+    "us-east-1":
+      "612588860854": "arn:aws:acm:us-east-1:612588860854:certificate/60ccfeb1-1bc1-434c-99f4-60345eaf4a89"
+      "999023218900": "arn:aws:acm:us-east-1:999023218900:certificate/afd75c08-2287-4b80-abea-5060f167223d"
+      "833552741498": "arn:aws:acm:us-east-1:833552741498:certificate/69127d4f-0eaa-43d2-b1a1-93ef8fe18ae0"
+    "us-west-2":
+      "612588860854": "arn:aws:acm:us-west-2:612588860854:certificate/0c43f9d5-bcfe-4d3b-aef4-29131fe8d994"
+      "999023218900": "arn:aws:acm:us-west-2:999023218900:certificate/d4e12efe-62e6-48c0-8b79-3844056964f1"
+
+  DomainMap:
+    "612588860854":
+      "APIGWCustomDomainName": "api.xfinityvme.com"
+      "ComcastDomainName": "api.vme.comcast.com"
+      "Route53HostedZoneName": "xfinityvme.com."
+      "Route53HostedZoneId" : "Z7XB2Y13Z772P"
+    "999023218900":      
+      "APIGWCustomDomainName": "api-staging.xfinityvme.com"
+      "ComcastDomainName": "staging.vme.comcast.com"
+      "Route53HostedZoneName": "xfinityvme.com."
+      "Route53HostedZoneId" : "Z7XB2Y13Z772P"
+    "833552741498":
+      "APIGWCustomDomainName": "api-dev.xfinityvme.com"
+      "ComcastDomainName": "dev.vme.comcast.com"
+      "Route53HostedZoneName": "xfinityvme.com."
+      "Route53HostedZoneId" : "Z7XB2Y13Z772P"
+  
+Conditions:
+  IsUSE1: !Equals [!Ref "AWS::Region", "us-east-1"]
+  IsUSW2: !Equals [!Ref "AWS::Region", "us-west-2"]
+  IsDev: !Equals [!Ref "AWS::AccountId", !Ref DevAccountId]
+  IsStaging: !Equals [!Ref "AWS::AccountId", !Ref StagingAccountId]
+  IsProd: !Equals [!Ref "AWS::AccountId", !Ref ProductionAccountId]
+  IsNotProd: !Not [!Equals [!Ref "AWS::AccountId", !Ref ProductionAccountId]]
+  IsNotDev: !Not [!Equals [!Ref "AWS::AccountId", !Ref DevAccountId]]
+
+Resources:
+  CloudformationDynamoDbStack:
+    Type: AWS::CloudFormation::Stack    
+    Properties:                 
+      TemplateURL: !Sub 
+        - https://s3.amazonaws.com/${S3Bucket}/${S3Folder}/${CFTemplate}
+        - {S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketTemplates"], S3Folder: !Ref CodeCommitInfraCFTemplateFolder , CFTemplate: !Ref CFTemplateInfrastructureDynamoDB}
+      TimeoutInMinutes: 60
+      
+  CloudformationVpcEndpointsStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:      
+      TemplateURL: !Sub 
+        - https://s3.amazonaws.com/${S3Bucket}/${S3Folder}/${CFTemplate}
+        - {S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketTemplates"], S3Folder: !Ref CodeCommitInfraCFTemplateFolder , CFTemplate: !Ref CFTemplateInfrastructureVpcEndpoints}
+      TimeoutInMinutes: 60
+
+  CloudformationCICDStack:
+    Type: AWS::CloudFormation::Stack
+    Properties: 
+      Parameters:
+        SgVpcEndpoint: !GetAtt CloudformationVpcEndpointsStack.Outputs.SgVpcEndpointOutput     
+      TemplateURL: !Sub
+        - https://s3.amazonaws.com/${S3Bucket}/${S3Folder}/${CFTemplate}
+        - {S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketTemplates"], S3Folder: !Ref CodeCommitInfraCFTemplateFolder , CFTemplate: !Ref CFTemplateInfrastructureCICD}
+      TimeoutInMinutes: 60 
+  
+  CloudformationSQSStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:    
+      TemplateURL: !Sub
+        - https://s3.amazonaws.com/${S3Bucket}/${S3Folder}/${CFTemplate}
+        - {S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketTemplates"], S3Folder: !Ref CodeCommitInfraCFTemplateFolder , CFTemplate: !Ref CFTemplateInfrastructureSQS}
+      TimeoutInMinutes: 60
+  
+  
+  # ** For SNS topic
+  SNSTopicForUnknownBatch:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !Sub '${SNSDisplayName}'
+      TopicName: !Sub '${SNSTopicName}'
+      Subscription:
+        - Endpoint: !Ref EmailAlerting
+          Protocol: EMAIL
+  
+  SNSTopicForBatchValidation:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: !Sub '${SNSValidationDisplayName}'
+      TopicName: !Sub '${SNSValidationTopicName}'
+      Subscription:
+        - Endpoint: !Ref EmailAlerting
+          Protocol: EMAIL
+
+  # * BEGIN Lambda Stack
+  CloudformationLambdaStack:
+    Type: AWS::CloudFormation::Stack    
+    Properties:      
+      Parameters:
+        ProductionAccountId: !Ref ProductionAccountId        
+        RoleLambdaExecutor: !Ref RoleLambdaExecutor
+        CodeCommitInfraJarsFolder: !Ref CodeCommitInfraJarsFolder
+        CodeCommitInfraLambdaFolder: !Ref CodeCommitInfraLambdaFolder
+        LambdaEnvVarClusterName: !Sub "${ECSClusterName}"
+        LambdaEnvVarContainerName: !Sub "${ECSFileScanContainerName}"
+        LambdaEnvVarValidationContainerName: !Sub "${ECSValidationContainerName}"
+        LambdaEnvVarKinesisContainerName: !Sub "${ECSKinesisContainerName}"
+        LambdaEnvVarDbBucketName: !Join ["-",[!Sub "${S3ClamAVDBBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        LambdaEnvVarFileScanRprtBucket: !Join ["-",[!Sub "${S3ScanReportBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        LambdaEnvVarHealthyBucket: !Join ["-",[!Sub "${S3HealthyMediaBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        LambdaEnvVarHealthyAdhocBucket: !Join ["-",[!Sub "${S3HealthyAdhocMediaBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        LambdaEnvVarFileScanDataReportBucket: !Join ["-",[!Sub "${S3DataScanReportBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        LambdaEnvVarSecurityGroup: !GetAtt CloudformationVpcEndpointsStack.Outputs.SgVpcEndpointOutput
+        LambdaEnvVarSubnetId: !GetAtt CloudformationVpcEndpointsStack.Outputs.DXSubnetIdOutput
+        LambdaEnvVarSubnet2Id: !GetAtt CloudformationVpcEndpointsStack.Outputs.DXSubnet2dOutput
+        LambdaEnvVarSubnet3Id: !GetAtt CloudformationVpcEndpointsStack.Outputs.DXSubnet3dOutput
+        LambdaEnvVarSubnet4Id: !GetAtt CloudformationVpcEndpointsStack.Outputs.DXSubnet4dOutput
+        LambdaEnvVarFileScanTaskDefinition: !GetAtt CloudformationECSStack.Outputs.LambdaEnvVarFileScanTaskDefinition
+        LambdaEnvVarValidationTaskDefinition: !GetAtt CloudformationECSStack.Outputs.ValidationTaskDefinition
+        LambdaEnvVarKinesisTaskDefinition: !GetAtt CloudformationECSStack.Outputs.KinesisTaskDefinition
+        LambdaEnvVarSnsTopicBatch: !Ref SNSTopicForUnknownBatch
+        LambdaEnvVarSnsTopicBatchValidation: !Ref SNSTopicForBatchValidation
+        LambdaEnvVarRawCsvDataBucket: !Join ["-",[!Sub "${S3RawCsvDataBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        LambdaEnvVarRawExcelDataBucket: !Join ["-",[!Sub "${S3RawExcelDataBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        LambdaEnvVarVendorSchemaFileBucket: !Join ["-",[!Sub "${S3VendorSchemaFileBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        LambdaEnvVarValidatedCsvDataBucket: !Join ["-",[!Sub "${S3ValidatedCsvDataBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        LambdaEnvVarValidatedExcelDataBucket: !Join ["-",[!Sub "${S3ValidatedExcelDataBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        LambdaEnvVarRawAdhocMediaBucket: !Join ["-",[!Sub "${S3RawAdhocMediaBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        LambdaEnvVarValidationReportBucket: !Join ["-",[!Sub "${S3ValidationReportsBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        LambdaEnvVarUnscannedDataBucket: !Join ["-",[!Sub "${S3UnscannedDataBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        LambdaEnvVarRawMediaBucket: !Join ["-",[!Sub "${S3RawMediaBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        LambdaEnvVarKinesisQueueUrl: !GetAtt CloudformationSQSStack.Outputs.KinesisQueueUrl
+        LambdaEnvVarValidationQueueUrl: !GetAtt CloudformationSQSStack.Outputs.ValidationQueueUrl
+        LambdaEnvVarVirusScanQueueUrl: !GetAtt CloudformationSQSStack.Outputs.VirusScanQueueUrl
+        
+
+
+      TemplateURL: !Sub 
+        - https://s3.amazonaws.com/${S3Bucket}/${S3Folder}/${CFTemplate}
+        - {S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketTemplates"], S3Folder: !Ref CodeCommitInfraCFTemplateFolder , CFTemplate: !Ref CFTemplateInfrastructureLambda}
+      TimeoutInMinutes: 60
+  
+  # * END Lambda Stack
+
+  # * Begin ECS Stack **********
+  CloudformationECSStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        S3ClamAVDBBucket: !Join ["-",[!Sub "${S3ClamAVDBBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        ECSClusterName: !Sub "${ECSClusterName}"
+        ECSClamDownloadTaskDefinitionName: !Sub "${ECSClamDownloadTaskDefinitionName}"
+        ECSFileScanTaskDefinitionName: !Sub "${ECSFilescanTaskDefinitionName}"
+        ECSKinesisTaskDefinitionName: !Sub "${ECSKinesisTaskDefinitionName}"
+        ECSValidationTaskDefinitionName: !Sub "${ECSValidationTaskDefinitionName}"
+        ECSClamDownloadContainerName: !Sub "${ECSClamDownloadContainerName}"
+        ECSKinesisContainerName: !Sub "${ECSKinesisContainerName}"
+        ECSValidationContainerName: !Sub "${ECSValidationContainerName}"
+        ECRRepoClamDownloadImageURI:  !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/vmedownloadclamdb:v1"
+        ECSTaskClamDownloadCpuCapacity:  !Sub "${ECSTaskClamDownloadCpuCapacity}"
+        ECSTaskClamDownloadMemoryCapacity: !Sub "${ECSTaskClamDownloadMemoryCapacity}"
+        ECSFileScanContainerName: !Sub "${ECSFileScanContainerName}"
+        ECRRepoFileScanImageURI: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/vmefilescan:v1"
+        ECRRepoValidationImageURI: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/vmebatchvalidation:v1"
+        ECRRepoKinesisImageURI: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/vmekinesisupload:v1"       
+      TemplateURL: !Sub
+        - https://s3.amazonaws.com/${S3Bucket}/${S3Folder}/${CFTemplate}
+        - {S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketTemplates"], S3Folder: !Ref CodeCommitInfraCFTemplateFolder , CFTemplate: !Ref CFTemplateInfrastructureEcs}
+      TimeoutInMinutes: 60
+
+  # * End ECS Stack **********
+
+  VmeCloudWatchRuleForEcs:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "ClamavDownloadDB"
+      Description: "Downloads latest virus database definitions everyday"
+      ScheduleExpression: !Sub "${CloudwatchEventCron}"
+      State: !If [IsUSE1, "ENABLED", "DISABLED"]
+      Targets: 
+        - Arn: !Sub 'arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/${ECSClusterName}'
+          RoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/${CWEventRoleForEcsArn}"
+          Id: !GetAtt CloudformationECSStack.Outputs.VmeFileScanClusterArn
+          EcsParameters:
+            TaskDefinitionArn: !GetAtt CloudformationECSStack.Outputs.CloudWatchClamAvDownloadDBTaskDefinition
+            TaskCount: 1
+            LaunchType: 'FARGATE'
+            PlatformVersion: 'LATEST'
+            NetworkConfiguration:
+              AwsVpcConfiguration:
+                AssignPublicIp: ENABLED
+                SecurityGroups:
+                  - !GetAtt CloudformationVpcEndpointsStack.Outputs.SgDefaultVPCtOutput
+                Subnets:
+                  - !FindInMap [DefaultVpcSubnet, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+    
+  VmeCloudWatchRuleForVirusScanQueue:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "run-filescan-from-sqs"
+      Description: "Checks for files in Sqs to be scanned and invokes lambda to run ECS task"
+      ScheduleExpression: !Sub "${CloudwatchEventQueueCron}"
+      State: !If [IsUSE1, "ENABLED", "DISABLED"]
+      Targets: 
+        - Arn: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CloudformationLambdaStack.Outputs.RunecsfilescanDataName}'
+          Id: CloudformationLambdaStack.Outputs.RunecsfilescanDataName
+  
+  VmeCloudwatchRuleVirusScanPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CloudformationLambdaStack.Outputs.RunecsfilescanDataName}'
+      Principal: 'events.amazonaws.com'
+      SourceArn: !Sub ${VmeCloudWatchRuleForVirusScanQueue.Arn}
+
+  VmeCloudWatchRuleForValidationQueue:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "run-validation-from-sqs"
+      Description: "Checks for files in Sqs to be validated and invokes lambda to run ECS task"
+      ScheduleExpression: !Sub "${CloudwatchEventQueueCron}"
+      State: !If [IsUSE1, "ENABLED", "DISABLED"]
+      Targets: 
+        - Arn: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CloudformationLambdaStack.Outputs.RunEcsValidationFromsqsName}'
+          Id: CloudformationLambdaStack.Outputs.RunEcsValidationFromsqsName
+  
+  VmeCloudwatchRuleValidationPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CloudformationLambdaStack.Outputs.RunEcsValidationFromsqsName}'
+      Principal: 'events.amazonaws.com'
+      SourceArn: !Sub ${VmeCloudWatchRuleForValidationQueue.Arn}
+
+  VmeCloudWatchRuleForKinesisQueue:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "run-kinesis-from-sqs"
+      Description: "Checks for files in Sqs to be scanned and invokes lambda to run ECS task"
+      ScheduleExpression: !Sub "${CloudwatchEventQueueCron}"
+      State: !If [IsUSE1, "ENABLED", "DISABLED"]
+      Targets: 
+        - Arn: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CloudformationLambdaStack.Outputs.RunecsKinesisFromSqsName}'
+          Id: CloudformationLambdaStack.Outputs.RunecsKinesisFromSqsName
+  
+  VmeCloudwatchRuleKinesisPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CloudformationLambdaStack.Outputs.RunecsKinesisFromSqsName}'
+      Principal: 'events.amazonaws.com'
+      SourceArn: !Sub ${VmeCloudWatchRuleForKinesisQueue.Arn}
+  
+  VmeCloudWatchRuleForCleanupQueues:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: "CleanupSQSQueues"
+      Description: "Checks for files in Sqs to be scanned and invokes lambda to run clean completed tasks"
+      ScheduleExpression: "rate(2 minutes)"
+      State: !If [IsUSE1, "ENABLED", "DISABLED"]
+      Targets: 
+        - Arn: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CloudformationLambdaStack.Outputs.LambdaCleanupSqsOutput}'
+          Id: CloudformationLambdaStack.Outputs.LambdaCleanupSqsOutput
+    
+  VmeCloudwatchRuleCleanupSQSPermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${CloudformationLambdaStack.Outputs.LambdaCleanupSqsOutput}'
+      Principal: 'events.amazonaws.com'
+      SourceArn: !Sub ${VmeCloudWatchRuleForCleanupQueues.Arn}
+          
+  CloudformationCloudfrontStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: IsUSE1
+    DependsOn:
+      - CloudFormationS3Stack
+    Properties:
+      Parameters:
+        DataBucketName: !Join ["-",[!Sub "${S3UnscannedDataBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        RawMediaBucketName: !Join ["-",[!Sub "${S3RawMediaBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        RawAdhocMediaBucketName: !Join ["-",[!Sub "${S3RawAdhocMediaBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+        ACMCertificateArn: !FindInMap [ACMCertMap, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+        LambdaPresignedAlias: !GetAtt CloudformationLambdaStack.Outputs.LambdaAliasV1
+            
+      TemplateURL: !Sub
+        - https://s3.amazonaws.com/${S3Bucket}/${S3Folder}/${CFTemplate}
+        - {S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketTemplates"], S3Folder: !Ref CodeCommitInfraCFTemplateFolder , CFTemplate: !Ref CFTemplateInfrastructureCloudfront}
+      TimeoutInMinutes: 60
+  # * Begin S3 Stack **********
+  ## Important Note - the bucket policies for S3 stack are written in Cloudfront yaml file and deployed with the cloudfront stack.
+  ## Due to circular dependencies it was difficult to consolidate the S3 buckets and bucket policies together.
+
+  CloudFormationS3Stack:
+    Type: AWS::CloudFormation::Stack
+    Condition: IsUSE1
+    Properties:
+      Parameters:
+         S3RawMediaBucket: !Join ["-",[!Sub "${S3RawMediaBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+         S3RawAdhocMediaBucket: !Join ["-",[!Sub "${S3RawAdhocMediaBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+         S3HealthyMediaBucket: !Join ["-",[!Sub "${S3HealthyMediaBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+         S3ScanReportBucket: !Join ["-",[!Sub "${S3ScanReportBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+         S3DataScanReportBucket: !Join ["-",[!Sub "${S3DataScanReportBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+         S3ClamAVDBBucket: !Join ["-",[!Sub "${S3ClamAVDBBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+         S3HealthyAdhocMediaBucket: !Join ["-",[!Sub "${S3HealthyAdhocMediaBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+         S3VendorSchemaFileBucket: !Join ["-",[!Sub "${S3VendorSchemaFileBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+         S3RawCsvDataBucket: !Join ["-",[!Sub "${S3RawCsvDataBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+         S3RawExcelDataBucket: !Join ["-",[!Sub "${S3RawExcelDataBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+         S3ValidatedCsvDataBucket: !Join ["-",[!Sub "${S3ValidatedCsvDataBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+         S3ValidatedExcelDataBucket: !Join ["-",[!Sub "${S3ValidatedExcelDataBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+         S3ValidationReportsBucket: !Join ["-",[!Sub "${S3ValidationReportsBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+         S3UnscannedDataBucket: !Join ["-",[!Sub "${S3UnscannedDataBucket}",!FindInMap [S3BucketEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+         LambdaRunEcsTaskFileScanName: !GetAtt CloudformationLambdaStack.Outputs.LambdaRunEcsTaskFileScanNameOutput
+         LambdaUpdateSnowAfterFileScanName: !GetAtt CloudformationLambdaStack.Outputs.LambdaUpdateSnowAfterFileScanNameOutput
+         LambdaUpdateSnowAfterFileValidationName: !GetAtt CloudformationLambdaStack.Outputs.LambdaUpdateSnowAfterFileValidationNameOutput
+         LambdaRunEcsTaskFileValidationName: !GetAtt CloudformationLambdaStack.Outputs.RunEcsValidationFromsqsName
+         LambdaRunEcsTaskKinesisUpload: !GetAtt CloudformationLambdaStack.Outputs.RunecsKinesisFromSqsName
+         LambdaPutFilesInSQSName: !GetAtt CloudformationLambdaStack.Outputs.LambdaPutfilesinsqsNameOutput
+         RoleLambdaExecutor: !Sub "${RoleLambdaExecutor}"
+         LambdaUpdateSnowAfterDataFileScanName: !GetAtt CloudformationLambdaStack.Outputs.LambdaUpdateSnowAfterDataFileScanNameOutput        
+      TemplateURL: !Sub
+        - https://s3.amazonaws.com/${S3Bucket}/${S3Folder}/${CFTemplate}
+        - {S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketTemplates"], S3Folder: !Ref CodeCommitInfraCFTemplateFolder , CFTemplate: !Ref CFTemplateInfrastructureS3}
+      TimeoutInMinutes: 60
+
+  # * End S3 Stack **********
+
+  # * BEGIN Data Initialization Stack
+  CloudformationMasterDataInitStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: IsUSW2
+    Properties:
+      Parameters:
+        RoleLambdaExecutor: !Ref RoleLambdaExecutor
+        CodeCommitInfraCFTemplateFolder: !Ref CodeCommitInfraCFTemplateFolder
+        DynamoDBvendordataTable: !GetAtt CloudformationDynamoDbStack.Outputs.DynamoDBvendordataTable
+        MultiRegionDeployment: !Ref MultiRegionDeployment
+        CFTemplateDataInitDynamoDBGlobalTables: !Ref CFTemplateDataInitDynamoDBGlobalTables
+      TemplateURL: !Sub 
+        - https://s3.amazonaws.com/${S3Bucket}/${S3Folder}/${CFTemplate}
+        - {S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketTemplates"], S3Folder: !Ref CodeCommitInfraCFTemplateFolder , CFTemplate: !Ref CFTemplateDataInitMaster}
+      TimeoutInMinutes: 60
+
+  ## * Begin API Gateway Configuration
+  APIGWAccount: 
+    Type: AWS::ApiGateway::Account
+    Properties: 
+      CloudWatchRoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleApigatewayCloudwatchlogs}"
+  APIGWClientCertificate:
+    Type: "AWS::ApiGateway::ClientCertificate"
+    DependsOn: APIGWAccount   
+    Properties:
+      Description: "apigw to lambda client certificate"
+  APIGWRestAPI:
+    Type: AWS::ApiGateway::RestApi
+    DependsOn: 
+      - APIGWClientCertificate
+    Properties:
+      Name: "vme"
+      Description: "VME RestAPI"
+      EndpointConfiguration:
+        Types:
+          - "REGIONAL"
+      Body:
+        'Fn::Transform':
+          Name: 'AWS::Include'          
+          Parameters:
+            Location: !Sub "s3://${S3BucketOpenAPI}/${CodeCommitInfraOpenAPIFolder}/${OpenAPITemplate}"  
+  APIGWStageDev:
+    Type: AWS::ApiGateway::Stage
+    Condition: IsNotProd
+    Properties:
+      StageName: "dev"
+      Description: "dev"
+      RestApiId: !Ref APIGWRestAPI
+      DeploymentId: !Ref APIGWDeploymentV1
+      ClientCertificateId: !Ref APIGWClientCertificate
+      MethodSettings:
+        - LoggingLevel: "ERROR"
+          HttpMethod: "*"
+          DataTraceEnabled: true
+          ResourcePath: "/*"          
+          MetricsEnabled: true
+          ThrottlingBurstLimit: 5000
+          ThrottlingRateLimit: 10000
+      Variables:
+        alias: !GetAtt CloudformationLambdaStack.Outputs.LambdaAliasDev
+
+  APIGWStageV1:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      StageName: "v1"
+      Description: "v1"
+      RestApiId: !Ref APIGWRestAPI
+      DeploymentId: !Ref APIGWDeploymentV1
+      ClientCertificateId: !Ref APIGWClientCertificate
+      MethodSettings:
+        - LoggingLevel: "ERROR"
+          HttpMethod: "*"
+          DataTraceEnabled: true
+          ResourcePath: "/*"          
+          MetricsEnabled: true
+          ThrottlingBurstLimit: 5000
+          ThrottlingRateLimit: 10000
+      Variables:
+        alias: !GetAtt CloudformationLambdaStack.Outputs.LambdaAliasV1
+  APIGWDeploymentV1:
+    Type: AWS::ApiGateway::Deployment    
+    Properties:
+      Description: "Stage v1 deployment"
+      RestApiId: !Ref APIGWRestAPI
+
+  ## * Begin Custom Domain Name/Base Path Mapping
+  APIGWCustomDomainName:
+    Type: 'AWS::ApiGateway::DomainName'
+    Properties:      
+      DomainName: !FindInMap [DomainMap, !Ref "AWS::AccountId", ComcastDomainName]
+      EndpointConfiguration:
+        Types: 
+          - "REGIONAL"
+      RegionalCertificateArn: !FindInMap [ACMCertMap, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+
+  APIGWBasePathMapping:
+    Type: 'AWS::ApiGateway::BasePathMapping'
+    Properties:      
+      DomainName: !Ref APIGWCustomDomainName
+      RestApiId: !Ref APIGWRestAPI
+
+  # * Custom Lambda to do Route53 CNAME CRUD CrossAccount (to Tooling)
+  LambdaCFRoute53CNAME:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "route53CNAME-${AppName}"
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketTemplates"]
+        S3Key: !Sub "${CodeCommitInfraLambdaFolder}/route53CNAME.py.zip"
+      Handler: "route53CNAME.lambda_handler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaToolingAccount}"      
+      Runtime: "python3.6"
+      Timeout: 300
+      MemorySize: 1024
+      TracingConfig:
+        Mode: "Active"
+
+  ## * Route53 CNAME to API GW Regional Endpoint  
+  Route53RecordSetCNAME:
+    Type: Custom::CNAME
+    Condition: IsUSE1    
+    Properties: 
+      ServiceToken: !GetAtt LambdaCFRoute53CNAME.Arn
+      HostedZoneId: !FindInMap [DomainMap, !Ref "AWS::AccountId", Route53HostedZoneId]
+      Source: !FindInMap [DomainMap, !Ref "AWS::AccountId", APIGWCustomDomainName]
+      Target: !GetAtt APIGWCustomDomainName.RegionalDomainName
+      Region: !Ref "AWS::Region"
+      SetIdentifier: !Join ["-",[!Ref "AWS::Region","vme-apigw"]]
+      RoleArn: !Sub "arn:aws:iam::${ToolingAccountId}:role/${RoleToolingRoute53}"
+
+  LambdaSetTLSVersion:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: !Sub |
+          import json
+          import boto3
+          import cfnresponse
+
+          def handler(event, context):
+              if event['RequestType'] == 'Delete':
+                  return cfnresponse.send(event, context, cfnresponse.SUCCESS, {"status": "Nothing to do, stack deleting."})
+              else:
+                  try:
+                      client = boto3.client('apigateway')
+                      print('${APIGWCustomDomainName}')
+                      response = client.update_domain_name(
+                          domainName='${APIGWCustomDomainName}',
+                          patchOperations=[
+                              {
+                                  'op': 'replace',
+                                  'path': '/securityPolicy',
+                                  'value': 'TLS_1_2'
+                              },
+                          ]
+                      )
+                      print(response)
+                      return cfnresponse.send(event, context, cfnresponse.SUCCESS, {"status": "complete"})
+                  except Exception as e:
+                      print(str(e))
+                      return cfnresponse.send(event, context, cfnresponse.FAILED, {"status": "failed"})
+      Handler: index.handler
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: python3.7
+      Timeout: 60  
+  CustomLambdaSetTLSVersion:
+    Type: Custom::InitFunction
+    DependsOn: APIGWCustomDomainName 
+    Properties:
+      ServiceToken: !GetAtt LambdaSetTLSVersion.Arn
+  
+  ## * End API Gateway Configuration
+
+Outputs:
+  APIGWUrl:
+    Description: "API GW URL"
+    Value: !Sub "https://${APIGWRestAPI}.execute-api.${AWS::Region}.amazonaws.com"
+  APIGWUrlwithStage:
+    Description: "API GW URL with Stage"
+    Value: !Sub "https://${APIGWRestAPI}.execute-api.${AWS::Region}.amazonaws.com/${APIGWStageV1}"  

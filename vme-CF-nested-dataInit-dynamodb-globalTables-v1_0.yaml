@@ -1,0 +1,125 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VME - Global Table Creation/Deletion Test Function and Custom Resource
+
+Parameters:  
+  RoleLambdaExecutor:
+    Type: String
+    Default: OneCloud/LambdaCustomExecution
+  DynamoDBvendordataTable:
+    Type: String
+    Default: "vendor_data"
+  DynamoDBkinesisdataTable:
+    Type: String
+    Default: "vme_kinesis_data"
+  
+Conditions:
+  IsUSW2: !Equals [!Ref "AWS::Region", "us-west-2"]
+
+Resources:
+  LambdaCreateGlobalTable:
+    Type: AWS::Lambda::Function
+    Condition: IsUSW2
+    Properties:
+      Code:
+        ZipFile: !Sub |
+          const AWS = require("aws-sdk");
+          const response = require('./cfn-response');
+          const ddb = new AWS.DynamoDB({apiVersion: '2012-08-10'});
+
+          exports.handler = function(event, context) {
+
+              var tableName = event.ResourceProperties.gtName;              
+              var regionList = event.ResourceProperties.regions;                             
+
+              if (event.RequestType == 'Delete') {
+
+                  /* Delete every RegionName asynchronously.
+                  Use 'let' to restrict variable values to the current
+                  iteration's scope. */
+                  
+                  for (let i = 0; i < regionList.length; i++) {
+
+                      let region = regionList[i];
+                      let params = {
+                          GlobalTableName: tableName,
+                          ReplicaUpdates: [ 
+                            {Delete: {RegionName: region}}
+                          ]
+                      };
+
+                      ddb.updateGlobalTable(params).promise().then(function(data) {
+                          console.log("Data for region " + region + ": " + data);
+                          response.send(event, context, "SUCCESS", data); 
+                      }).catch(function(err) {
+                          if (err.code == "GlobalTableNotFoundException" ||
+                            err.code == "ReplicaNotFoundException"){
+
+                            /* An error will be thrown if the Global Table does
+                            not exist. If the table doesn't exist (deleted
+                            manually, etc), then Delete's job is already done, 
+                            so return a SUCCESS. */
+
+                            console.log("Table already deleted in region " + region);
+                            response.send(event, context, "SUCCESS", params);
+                          } else {
+                            console.log("Error in region " + region + ": " + err);
+                            console.log("Failed to delete Global Table.");
+                            response.send(event, context, "FAILED", {});  
+                          }                    
+                      });
+                  }
+              } else if (event.RequestType == 'Create') {
+
+                  /* Push all RegionNames to the table through a single 
+                  call of createGlobalTables(). */
+
+                  let params = {
+                      GlobalTableName: tableName,
+                      ReplicationGroup: [ 
+                      
+                      ]
+                  };
+
+                  for (let i = 0; i < regionList.length; i++) { 
+                      params.ReplicationGroup.push({RegionName: regionList[i]});                    
+                  }
+
+                  ddb.createGlobalTable(params, function(err, data) {
+                      if (err) {
+                          console.log("Error: " + err);
+                          console.log("Failed to create Global Table.");
+                          response.send(event, context, "FAILED", {});                    
+                      }
+                      else {
+                          response.send(event, context, "SUCCESS", data);                    
+                      }
+                  });
+              } else if (event.RequestType == 'Update') {
+                  console.log("Update request types are unsupported by cfn template.");
+                  response.send(event, context, "FAILED", {});
+              }         
+          };
+      Handler: index.handler
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: nodejs10.x
+      Timeout: 60  
+  CustomLambdaDynamoDBvendordataGlobalTable:
+    Type: Custom::InitFunction 
+    Condition: IsUSW2
+    Properties:
+      ServiceToken:
+         Fn::GetAtt: [ LambdaCreateGlobalTable , "Arn" ]
+      gtName: !Ref DynamoDBvendordataTable
+      regions:
+        - "us-east-1"
+        - "us-west-2"
+  CustomLambdaDynamoDBkinesisdataGlobalTable:
+    Type: Custom::InitFunction 
+    Condition: IsUSW2
+    Properties:
+      ServiceToken:
+         Fn::GetAtt: [ LambdaCreateGlobalTable , "Arn" ]
+      gtName: !Ref DynamoDBkinesisdataTable
+      regions:
+        - "us-east-1"
+        - "us-west-2"

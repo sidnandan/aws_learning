@@ -1,0 +1,877 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VME - Lambda Main Infrastructure - Lambda Functions, Versions, Aliases, Authorizers
+
+Parameters:
+  AppName:
+    Type: String
+    Default: VME
+  ProductionAccountId:
+    Type: String
+    Default: 612588860854
+  RoleLambdaExecutor:
+    Type: String
+    Default: OneCloud/LambdaCustomExecution  
+  CodeCommitInfraJarsFolder:
+    Type: String
+    Default: jars
+  CodeCommitInfraLambdaFolder:
+    Type: String
+    Default: lambdas
+  LambdaUpdateSnowAfterFileScanName:
+    Type: String
+    Default: vme-updatesnow-lambda
+  LambdaRunEcsTaskFileScanName:
+    Type: String
+    Default: vme-runecstask-lambda
+  LambdaUpdateSnowAfterFileValidationName:
+    Type: String
+    Default: "vme-update-snow-after-validation"
+  LambdaRunEcsTaskKinesisName:
+    Type: String
+    Default: vme-runkinesis-ecs
+  LambdaRunEcsTaskValidationName:
+    Type: String
+    Default: vme-runecs-validation
+  LambdaRunEcsValidationFromSQSName:
+    Type: String
+    Default: vme-run-ecs-validation-fromsqs
+  LambdaRunEcsVirusScanFromSQSName:
+    Type: String
+    Default: vme-runecsfilescan-data
+  LambdaRunEcsKinesisFromSQSName:
+    Type: String
+    Default: vme-runecs-kinesis-from-sqs
+  LambdaPutFilesInSQSName:
+    Type: String
+    Default: PutFilesinSQS
+  LambdaJarCIMAAuthorizer:
+    Type: String
+    Default: cima-oauth-authorizer-1.2.0-SNAPSHOT.jar
+  LambdaJarData:
+    Type: String
+    Default: vme-lambda-1.0.2.jar
+  LambdaZipEcsTask:
+    Type: String
+    Default: vme-runecstask-lambda.zip
+  LambdaZipEcsKinesis:
+    Type: String
+    Default: vme-runkinesis-ecs-lambdav10.zip
+  LambdaZipEcsValidation:
+    Type: String
+    Default: vme-runvalidation-ecs-lambdav10.zip
+  LambdaZipUpdateSnow:
+    Type: String
+    Default: vme-updatesnow-lambda_v1.zip
+  LambdaZipUpdateSnowAfterValidation:
+    Type: String
+    Default: "vme-update-snow-after-validationv1.zip"
+  LambdaZipAddAclHeaderZip:
+    Type: String
+    Default: "add-acl-header.zip"
+  LambdaAliasV100Name:
+    Type: String
+    Default: v1_0_0
+  LambdaAliasDevName:
+    Type: String
+    Default: dev
+  LambdaEnvVarClusterName:
+    Type: String
+    Default: ""
+  LambdaEnvVarContainerName:
+    Type: String
+    Default: ""
+  LambdaEnvVarDbBucketName:
+    Type: String
+    Default: ""
+  LambdaEnvVarFileScanRprtBucket:
+    Type: String
+    Default: ""
+  LambdaEnvVarHealthyBucket:
+    Type: String
+    Default: ""
+  LambdaEnvVarHealthyAdhocBucket:
+    Type: String
+    Default: ""
+  LambdaEnvVarUnscannedDataBucket:
+    Type: String
+    Default: "vme-unscanned-data-bucket"
+  LambdaEnvVarRawCsvDataBucket:
+    Type: String
+    Default: "vme-raw-csv-data"
+  LambdaEnvVarRawExcelDataBucket:
+    Type: String
+    Default: "vme-raw-excel-data"
+  LambdaEnvVarVendorSchemaFileBucket:
+    Type: String
+    Default: "vendor-schema"
+  LambdaEnvVarValidatedExcelDataBucket:
+    Type: String
+    Default: "vme-validated-excel-data"
+  LambdaEnvVarValidatedCsvDataBucket:
+    Type: String
+    Default: "vme-validated-csv-data"
+  LambdaEnvVarRawAdhocMediaBucket:
+    Type: String
+    Default: "vme-raw-adhoc-media-files"
+  LambdaEnvVarRawMediaBucket:
+    Type: String
+    Default: "vme-raw-media-files"
+  LambdaEnvVarFileScanDataReportBucket:
+    Type: String
+    Default: "vme-data-filescan-reports"
+  LambdaEnvVarSecurityGroup:
+    Type: String
+    Default: ""
+  LambdaEnvVarSubnetId:
+    Type: String
+    Default: ""
+  LambdaEnvVarSubnet2Id:
+    Type: String
+    Default: ""
+  LambdaEnvVarSubnet3Id:
+    Type: String
+    Default: ""
+  LambdaEnvVarSubnet4Id:
+    Type: String
+    Default: ""
+  LambdaEnvVarFileScanTaskDefinition:
+    Type: String
+    Default: ""
+  LambdaEnvVarSnsTopicBatch:
+    Type: String
+    Default: ""
+  
+  LambdaEnvVarKinesisContainerName:
+    Type: String
+    Default: ""
+  LambdaEnvVarValidationReportBucket:
+    Type: String
+    Default: ""
+  LambdaEnvVarValidationContainerName:
+    Type: String
+    Default: ""
+  LambdaEnvVarKinesisTaskDefinition:
+    Type: String
+    Default: ""
+  LambdaEnvVarValidationTaskDefinition:
+    Type: String
+    Default: ""
+  LambdaEnvVarSnowUrlUserForValidation:
+    Type: String
+    Default: "Test_rest_api"
+  LambdaEnvVarSnsTopicBatchValidation:
+    Type: String
+    Default: ""
+  LambdaEnvVarSnowUrlUser:
+    Type: String
+    Default: "Test_rest_api"
+  LambdaEnvVarSnowUrlPassSecretName:
+    Type: String
+    Default: "snowurlpass"
+  LambdaEnvVarVirusScanQueueUrl:
+    Type: String
+    Default: ""
+  LambdaEnvVarValidationQueueUrl:
+    Type: String
+    Default: ""
+  LambdaEnvVarKinesisQueueUrl:
+    Type: String
+    Default: ""
+
+    
+Mappings:
+  S3BucketMap:
+    "us-east-1":
+      "S3BucketLambdaJars": "vme-artifacts-us-east-1"
+    "us-west-2":
+      "S3BucketLambdaJars": "vme-artifacts-us-west-2"
+
+  SnowUrlMap:
+    "us-east-1":
+      "833552741498": "https://comcastsecdev.service-now.com/api/mcse/batch"
+      "999023218900": "https://comcastsectest.service-now.com/api/mcse/batch"
+      "612588860854": "https://comcastsec.service-now.com/api/mcse/batch"
+    "us-west-2":
+      "999023218900": "https://comcastsectest.service-now.com/api/mcse/batch"
+      "612588860854": "https://comcastsec.service-now.com/api/mcse/batch"
+
+  
+  KinesisAccessKeyMap:
+    "us-east-1":
+      "833552741498": "AQICAHh44DT6910yUKZNHYX9xDEfMlSPGH2wvso4J9+tWJsbVQHv5efYW46GkEzyCSwXAdXeAAAAcjBwBgkqhkiG9w0BBwagYzBhAgEAMFwGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMqfqyBrVv8gZdEYv3AgEQgC/yRYzZ8fllRtOE1ZBMu4O5/pmlfMRr4cCbPY+pvJELFztQmp3GZch3o2T52TncGg=="
+      "999023218900": "AQICAHjCAaC7LkBK/j7747hBqVuveEEK0XaGzpc5f5NCyuBRJAE6lmu1IkkWlq8suUYYmcZoAAAAcjBwBgkqhkiG9w0BBwagYzBhAgEAMFwGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMLdRXf62d4IrAuyAeAgEQgC/2QfaVfxlpogRg00QgPQTuOHQxUyVhbmA5v7vN8Vzb5dJTNYmfbTNUiyb4foNKfQ=="
+      "612588860854": "AQICAHiAO/KgVBLuiHQjfA3VA8bSVc623hh6r6/b8TX/GG1KOgEWksyIwJ4gWa6+8pAVNebUAAAAcjBwBgkqhkiG9w0BBwagYzBhAgEAMFwGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMWLbF3cCfeamVGGu0AgEQgC/9ymU81lwIdwhQHuUr96fH8P3PI2HtMEUnuSUa5vAQPsLPi26sX3sWoGo4jyOSvw=="
+    "us-west-2":
+      "999023218900": "AQICAHioo80Sd6Pr9fhfxCJO+tyCzd7NV2TMmceEiTXd7LOGlwEnLRxBM1LaD9hQlixxzPhhAAAAcjBwBgkqhkiG9w0BBwagYzBhAgEAMFwGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQM70A9940nJItDqIUCAgEQgC/nW609MnMbQKPyAo6MkBlrkgjShPCtSbGf2UyBWcnFlgfiuK+2EEMIycF9mN9+zg=="
+      "612588860854": "AQICAHik/ooXSIi+KuEfAH7nh9xG1Hzxeuh9TZUITeg/7bXSFgGU0fJcEFARwuxxljasAmoUAAAAcjBwBgkqhkiG9w0BBwagYzBhAgEAMFwGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMtLCtmbI/Ntwpe5riAgEQgC8vL1KBUwgBdyIvbHH0ddKnlNH8VpvOlBSPmHWpkUwiw1wp1345evN+X6WI56Gyow=="
+  KinesisSecretKeyMap:
+    "us-east-1":
+      "833552741498": "AQICAHh44DT6910yUKZNHYX9xDEfMlSPGH2wvso4J9+tWJsbVQHmVyXLGPyWSM9nQuUj2WFVAAAAhzCBhAYJKoZIhvcNAQcGoHcwdQIBADBwBgkqhkiG9w0BBwEwHgYJYIZIAWUDBAEuMBEEDF5TePuSqhA7XiA4FQIBEIBDdKLY0MMudHxHOZVJ9v02lBU2C53trNxlHn6kFXcabbaN/4R2Ndy765++SEFnFMYxft0kOjrgA7o1t6dBtM9ZwKCotw=="
+      "999023218900": "AQICAHjCAaC7LkBK/j7747hBqVuveEEK0XaGzpc5f5NCyuBRJAGGbGlDUkJC5dgRcAp3p9pRAAAAhzCBhAYJKoZIhvcNAQcGoHcwdQIBADBwBgkqhkiG9w0BBwEwHgYJYIZIAWUDBAEuMBEEDNeOcuKdxVNdi7JNmwIBEIBDLIJiw9RgsDkko7p+7Wnsb0Npoc61lFiJG7qa5MRIHCRXLi8tL/mzGDLSteOtJX6ZRP0l6d1p66PueqlBoFMS+sBIyw=="
+      "612588860854": "AQICAHiAO/KgVBLuiHQjfA3VA8bSVc623hh6r6/b8TX/GG1KOgHynoKonHmmkVX+SM/Rh1hwAAAAhzCBhAYJKoZIhvcNAQcGoHcwdQIBADBwBgkqhkiG9w0BBwEwHgYJYIZIAWUDBAEuMBEEDBEVue+Tgjmut+bQUQIBEIBDHtNeSHSE9+hEoA8CUAbocqfXtv35PyOCaNk7Yqwt/SUNa2vDcd52Ve+qk1Kx1czkkUbrAaNouYW3SZN4MTGkDtiRmg=="
+    "us-west-2":
+      "999023218900": "AQICAHioo80Sd6Pr9fhfxCJO+tyCzd7NV2TMmceEiTXd7LOGlwFQFptzgxJoDDc8D2IBVyo6AAAAhzCBhAYJKoZIhvcNAQcGoHcwdQIBADBwBgkqhkiG9w0BBwEwHgYJYIZIAWUDBAEuMBEEDPx3vCIPjQHn1Qx3rAIBEIBDI6DJruufZMeyHTi+dCet6kmHGwLNT7OU5YKS3w7+AFxCeLveNsJocZxRekNDkWDDQBSVKuzo27SFAet6TvY1OJJlWg=="
+      "612588860854": "AQICAHik/ooXSIi+KuEfAH7nh9xG1Hzxeuh9TZUITeg/7bXSFgE4Gg4eC5nSfC4Yi7ICNpM4AAAAhzCBhAYJKoZIhvcNAQcGoHcwdQIBADBwBgkqhkiG9w0BBwEwHgYJYIZIAWUDBAEuMBEEDGeJDcZQQ/TzPhIE2QIBEIBDG2p87MdCA9e4XAl6pAYTXZ+PXvBu/jawjPU0MbBPWC2PdU6PpRuVY6Ns4FfESXKBvKEsq3aUMF2Lb0EWT0qWrE9kvQ=="
+
+  CloudfrontDetailsMap:
+    "833552741498":
+      "KeyPairId": "APKAJN6E4RKUWJWOXGEA"
+      "PemKeyString": "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"
+    "999023218900":
+      "KeyPairId": "APKAIN7W53ZJTHVUYSMA"
+      "PemKeyString": "AQICAHhnoC20Yxv4AcfRAJrSfOjyKAJ3CQHMOLLl6KUyro+8dAG6fkcSAhuFA7d+zjbuzzaMAAAG8jCCBu4GCSqGSIb3DQEHBqCCBt8wggbbAgEAMIIG1AYJKoZIhvcNAQcBMB4GCWCGSAFlAwQBLjARBAw0NqIp6LyazsJJWDwCARCAggal89SAH2YFF2Ha+HneBDD1mlqmYmuyHZeIxrJtWyFSLst+t0orDGZ71t5osIF3q3N0g3C4wBJZyZu4TVFZxfT6hbiTaiybkR1KebFNiQ6ZWXaBC57fVLKRvFdDDF8v0fNqB0HnIYPcx4jNNJGKQ2igk7/7O5AmtWn2rqtO7cx+y7bJ9GFiu22F8sygVh6pkGVozFCZgetQWFPfG2toF9ixmg+pQr4I8cCDqqZdkkek8/5CNIKIOSVuMCYj359IzdXzPGohdaa1V5pe+J4EsfoIcKVXGED7c+LCo00kl8ld8dpxVPbVO42nYtp9jNsaREZ6dxrb6tHgz4Dl61AMHLBau49Nx89OGPS7Q2MO0bi9p79TfbikSeeS/8RuD+illU16c9lz9dQnVOpfBoQmJ4tGdVNkIzwo0InwUdjuLI23D7NadisyoyVnnxUI0U7D0aSDWAjE1SeFkuIQrr2GOwytIvTx5mwfCcVw9mCnyvurhFXDFfCwe24kqZrq4zz+Xj8vyVeY4zIhx7WtolnFxT2uAwi5HyDbEuWIgKED15MIonK/t/mAH1GJlsF9h/7VO9ixGFrivpJ5sCufd0U2X98d7PkdZB08sVYLPgwyC4TRKVISwDMr2W2t4LYakyV0WCH8DJP7b0sOKxM1R7qncYpaEAVj7A5xUyQpetkxBfhKiL+yhhW1isZcbiIZR2xNswZN0itVahvB673xVx3AL9qbfFpCOq21CZpnRdxXxGe2s4C482D0decL6lR3EXYcp/wQbx80cKamgBJosUJoIW5nqVIY2iMjrL/qj5d/CyVJsufhQlC+o5oVvwJZGaquJ1A5p3QVJXt52y/yJID0ciGWw8+0OTCFCsXmM8vmL0DG+7NFGtU8HO+nr3Ys9ax56l23i1qftm5drzEoJLF6vPWughsZ1gv/TI5UlPLZDDBG1zlpnAI0DmE/cCHNTJv+pTQN34uZjJEdsqD8klL+Q08BE7qsQccStpcRQ1+9PKt+cNKzfVOuNLMn3d4FKAnr9O5+9+0QpdCtHFYdxwxY9awvAK9KiXKJTiLaVBuBpszg4P0jGkEOmkfKt76APNaRfHYXaUtoYvsErU2ZeptU7EpSorEvyGzL0Mb9vgFl+YDnmybMA6S5MctRD4+FDzdazZ+PvAnuYQASlQaKxRSd0xnNGZ/dLW8mnN4YTq6qB055DpTY4uwyHlYNn7Tbtawo3MQFBbUayEyVgEN5d7zVF0Y7h0L0nWkgU/mLequBcjiNkqV/gCfMZllDvft72FEi1JHW4ulJNwqFr3s0fxwIwEr6sVzSjNYDNz8ktr1bRAXMDKkNuTLkFCqaTsMu158O/N9sUp2OYN72IbvZQNiwYqAKi86vjld+4P42CeJMqm5y+jDyBVsP2UFF4EU7o4gaa/KYVxzBa8JGuWi5YzUHkmQQBsgxhU/2m9CocqulRrpsS8OLg9d98gjWiS4YJbeF80onVdeM3IbvLtn2t7lUChFY8yI6oCowUe2SI2M/EzbVAQ25MvMgEuS23D+ZEyLvKMx3NBhcRsVAfqHlt3/DwlcqMVZyv/2742ybJGZ0EJfxDmYz2PCxq75KaqFe7oynbDy3QRkinPc0Ljo6a8xbxVgYhL3fJgWWr9Jc5MFNqyjRYAcc2ML8pbjtlb1KWsMon0XPrDIhpA3xd7fQ3Y33gRDxePckXcTJToLFt3fPPs85OkUibbZ4KOS86bsd3RPo0t6W+IuBq66IZMGspxjzHraAE7sY/Xxn/1AO/7y/g2ITbd7MoIb8OWHoocvKO5+5uQB3D2ZDcsR51PdjGRiRXTB+gWvgSdZ5nwiC0MTsEWEcwX/pyBYOAg59F2iNQcswvoRPlIpA5602SP9Gajz5mogZkUcicSqZZAdEdoB/qc2OLtndD06aPYGgLENwhu7GlcgV2wqXovwwc+cvx0gbjoHhmiikOWX2+tv0tlXW21QnAEfcB1nPix0VqN2bRLZSaQ92x31F90ihRBCl2KV8IYjhVcz1x9dZvgi4A8glog+atOWwMGSMIqmEofaMsVA2QUY7EyPcaXukcLe3I8NO66M9hNcPC6tOtlvpbscTjx8luI1PZT2xKlaKTs9qW0CsH3QX+yzFqZmOKR8fem0U63kDMs60ps7nNrWnkF/q6tYeckCYEUx3d2gkVvqvx+hpM7+MUl6K3uvYQ5ujOxpPISy78dxrJt9Fp80S2upgVvzNeJfq83Lak+jpFlZErgrhWSwkpRBNLctJ4PEPVmdRyV2GUl9ih9oB"
+    "612588860854" :
+      "KeyPairId" : "APKAJBLZWLSLVN6Y42PQ"
+      "PemKeyString" : "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"
+  KMSKeyArnPresignedLambdaMap:
+    "us-east-1"  :
+      "833552741498" : "arn:aws:kms:us-east-1:833552741498:key/c7ae8c54-aa01-4bcf-b17e-48dab640d28e"
+      "999023218900" : "arn:aws:kms:us-east-1:999023218900:key/171a704d-070e-49b7-a79d-2050d8a41bb4"
+      "612588860854" : "arn:aws:kms:us-east-1:612588860854:key/1abc5b8c-1cfb-418c-807e-3d7f5661b58e"
+    "us-west-2" :
+      "999023218900" : "arn:aws:kms:us-west-2:999023218900:key/35702250-78a1-44ca-92d6-edd0c0e80dea"
+      "612588860854" : "arn:aws:kms:us-west-2:612588860854:key/5e412d0f-0875-413f-be59-fec5688a3b86"
+
+
+  LambdaEnvVarMap:
+    Common:
+      visibilityTimeout: 60
+      TaskCountThreshold: 80
+      LambdaZipCleancompletedfromsqs: "CleanCompletedFilesFromSQS.zip"
+      LambdaZipPutFilesinSQS: "PutFilesinSQS.zip"
+      LambdaZipvmerunecsvalidationfromsqs: "vme-run-ecs-validation-fromsqs.zip"
+      LambdaZipvmerunecskinesisfromsqs: "vme-runecs-kinesis-from-sqsv1.zip"
+      LambdaZipvmerunecsfilescandata: "vme-runecsfilescan-data.zip"
+      LambdaZipUpdateSnowAfterDataFileScan: "update-snow-after-data-file-scanv1.zip"
+    LambdaVmeRunEcsValidationFromsqs:
+      Percent: 10
+      SchemaCsvFileName:  "VDR_Batch_Schema.csv"
+      SchemaExcelFileName: "VDR_Batch_Schema.xlsx"
+    LambdaVmeRunecsKinesisFromSqs:
+      kinesisCloudWatchEndPoint: "monitoring-ae1.hdw.r53.deap.tv"
+      kinesisRegion: "us-east-1"
+      recordsCount: 150
+      kinesisEndPoint: "kinesis-ae1.hdw.r53.deap.tv"
+      kinesisStreamName: "comcast.sats.vme"
+      region: "us-east-1"
+    LambdaCleancompletedfilesfromsqs:
+      visibilityTimeout: 30
+
+
+
+    
+Conditions:
+  IsUSE1: !Equals [!Ref "AWS::Region", "us-east-1"]
+  IsProd: !Equals [!Ref "AWS::AccountId", !Ref ProductionAccountId]
+  IsNotProd: !Not [!Equals [!Ref "AWS::AccountId", !Ref ProductionAccountId]]
+  IsDev: !Equals [!Ref "AWS::AccountId", "DevAccountId"]
+
+Resources:
+  ## * Begin Lambda Authorizers
+  # -- CIMA --
+  LambdaAuthorizerCIMASchemaWrite:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "cimaAuthorizerSchemaWrite-${AppName}"
+      Description: !Ref LambdaJarCIMAAuthorizer
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Sub "${CodeCommitInfraJarsFolder}/${LambdaJarCIMAAuthorizer}"
+      Handler: "com.comcast.cima.oauth2.authorizer.APIGatewayAuthorizerHandler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: "java8"
+      Timeout: 300
+      MemorySize: 1024
+      TracingConfig:
+        Mode: "Active"      
+      Environment:
+        Variables:
+          validScopes: "vme:scope:schema:write"
+  LambdaAuthorizerCIMABatchWrite:
+    Type: AWS::Lambda::Function
+    Properties:      
+      FunctionName: !Sub "cimaAuthorizerBatchWrite-${AppName}"
+      Description: !Ref LambdaJarCIMAAuthorizer
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Sub "${CodeCommitInfraJarsFolder}/${LambdaJarCIMAAuthorizer}"
+      Handler: "com.comcast.cima.oauth2.authorizer.APIGatewayAuthorizerHandler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: "java8"
+      Timeout: 300
+      MemorySize: 1024
+      TracingConfig:
+        Mode: "Active"
+      Environment:
+        Variables:
+          validScopes: "vme:scope:batch:write"
+  LambdaAuthorizerCIMABatchValidation:
+    Type: AWS::Lambda::Function
+    Properties:      
+      FunctionName: !Sub "cimaAuthorizerBatchValidation-${AppName}"
+      Description: !Ref LambdaJarCIMAAuthorizer
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Sub "${CodeCommitInfraJarsFolder}/${LambdaJarCIMAAuthorizer}"
+      Handler: "com.comcast.cima.oauth2.authorizer.APIGatewayAuthorizerHandler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: "java8"
+      Timeout: 300
+      MemorySize: 1024
+      TracingConfig:
+        Mode: "Active"      
+      Environment:
+        Variables:
+          validScopes: "vme:scope:batch:validation"
+  LambdaAuthorizerCIMAPresignedUrl:
+    Type: AWS::Lambda::Function
+    Properties:      
+      FunctionName: !Sub "cimaAuthorizerPresignedUrlForMediaUpload-${AppName}"
+      Description: !Ref LambdaJarCIMAAuthorizer
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Sub "${CodeCommitInfraJarsFolder}/${LambdaJarCIMAAuthorizer}"
+      Handler: "com.comcast.cima.oauth2.authorizer.APIGatewayAuthorizerHandler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: "java8"
+      Timeout: 300
+      MemorySize: 1024
+      TracingConfig:
+        Mode: "Active"      
+      Environment:
+        Variables:
+          validScopes: "vme:scope:media:presignedurl"
+
+  ## * Begin Microservice Lambdas
+
+  # ** Begin Data Service Lambdas
+  LambdaDataUploadVendorData:
+    Type: AWS::Lambda::Function
+    Properties:      
+      FunctionName: "UploadVendorData"
+      Description: !Ref LambdaJarData
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Sub "${CodeCommitInfraJarsFolder}/${LambdaJarData}"
+      Handler: "com.comcast.vme.lambda.UploadVendorData::handleRequest"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: "java8"
+      #confirm this value
+      Timeout: 30
+      MemorySize: 1600
+      TracingConfig:
+        Mode: "Active"
+      Environment:
+        Variables:
+          Percent: !FindInMap [LambdaEnvVarMap,LambdaVmeRunEcsValidationFromsqs,Percent]
+          RawExcelBucket: !Sub "${LambdaEnvVarRawExcelDataBucket}"
+          SchemaBucket: !Sub "${LambdaEnvVarVendorSchemaFileBucket}"
+          SchemaFileName: !FindInMap [LambdaEnvVarMap,LambdaVmeRunEcsValidationFromsqs,SchemaExcelFileName]
+          ValidatedExcelBucket: !Sub "${LambdaEnvVarValidatedExcelDataBucket}"
+  LambdaVersionDataUploadVendorDataV100: 
+    Type: "AWS::Lambda::Version"
+    # only for the first deploy, confirm
+    DeletionPolicy: Retain
+    Properties: 
+      Description: !Ref LambdaJarData
+      FunctionName: !Ref LambdaDataUploadVendorData
+  LambdaAliasDevDataUploadVendorData:
+    Type: "AWS::Lambda::Alias"
+    Condition: IsNotProd
+    Properties:
+      FunctionName: !Ref LambdaDataUploadVendorData
+      FunctionVersion: $LATEST
+      Name: !Ref LambdaAliasDevName
+  LambdaAliasV100DataUploadVendorData:
+    Type: "AWS::Lambda::Alias"
+    Properties:
+      FunctionName: !Ref LambdaDataUploadVendorData
+      FunctionVersion: !GetAtt LambdaVersionDataUploadVendorDataV100.Version
+      Name: !Ref LambdaAliasV100Name
+  LambdaDataUploadVendorSchema:
+    Type: AWS::Lambda::Function
+    Properties:      
+      FunctionName: "UploadVendorSchema"
+      Description: !Ref LambdaJarData
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Sub "${CodeCommitInfraJarsFolder}/${LambdaJarData}"
+      Handler: "com.comcast.vme.lambda.UploadVendorSchema::handleRequest"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: "java8"
+      #confirm this value
+      Timeout: 300
+      MemorySize: 512
+      TracingConfig:
+        Mode: "Active"
+      Environment:
+        Variables:
+          SchemaBucket: !Sub "${LambdaEnvVarVendorSchemaFileBucket}"
+          SchemaFileName: !FindInMap [LambdaEnvVarMap,LambdaVmeRunEcsValidationFromsqs,SchemaExcelFileName]
+  LambdaVersionDataUploadVendorSchemaV100: 
+    Type: "AWS::Lambda::Version"
+    # only for the first deploy
+    DeletionPolicy: Retain
+    Properties: 
+      Description: !Ref LambdaJarData
+      FunctionName: !Ref LambdaDataUploadVendorSchema
+  LambdaAliasDevDataUploadVendorSchema:
+    Type: "AWS::Lambda::Alias"
+    Condition: IsNotProd
+    Properties:
+      FunctionName: !Ref LambdaDataUploadVendorSchema
+      FunctionVersion: $LATEST
+      Name: !Ref LambdaAliasDevName
+  LambdaAliasV100DataUploadVendorSchema:
+    Type: "AWS::Lambda::Alias"
+    Properties:
+      FunctionName: !Ref LambdaDataUploadVendorSchema
+      FunctionVersion: !GetAtt LambdaVersionDataUploadVendorSchemaV100.Version
+      Name: !Ref LambdaAliasV100Name
+  LambdaDataUploadedVendorValidatedData:
+    Type: AWS::Lambda::Function
+    Properties:      
+      FunctionName: "UploadedVendorValidatedData"
+      Description: !Ref LambdaJarData
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Sub "${CodeCommitInfraJarsFolder}/${LambdaJarData}"
+      Handler: "com.comcast.vme.lambda.UploadedVendorValidatedData::handleRequest"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: "java8"
+      #confirm this value
+      Timeout: 30
+      MemorySize: 1600
+      TracingConfig:
+        Mode: "Active"
+      Environment:
+        Variables:
+          ValidatedExcelBucket: !Sub "${LambdaEnvVarValidatedExcelDataBucket}"
+          ValidatedCsvBucket: !Sub "${LambdaEnvVarValidatedCsvDataBucket}"
+  LambdaVersionDataUploadedVendorValidatedDataV100: 
+    Type: "AWS::Lambda::Version"
+    # only for the first deploy
+    DeletionPolicy: Retain
+    Properties: 
+      Description: !Ref LambdaJarData
+      FunctionName: !Ref LambdaDataUploadedVendorValidatedData
+  LambdaAliasDevDataUploadedVendorValidatedData:
+    Type: "AWS::Lambda::Alias"
+    Condition: IsNotProd
+    Properties:
+      FunctionName: !Ref LambdaDataUploadedVendorValidatedData
+      FunctionVersion: $LATEST
+      Name: !Ref LambdaAliasDevName
+  LambdaAliasV100DataUploadedVendorValidatedData:
+    Type: "AWS::Lambda::Alias"
+    Properties:
+      FunctionName: !Ref LambdaDataUploadedVendorValidatedData
+      FunctionVersion: !GetAtt LambdaVersionDataUploadedVendorValidatedDataV100.Version
+      Name: !Ref LambdaAliasV100Name  
+  LambdaDataPresignedUrl:
+    Type: AWS::Lambda::Function
+    Properties:      
+      FunctionName: "PresignedUrl"
+      Description: !Ref LambdaJarData
+      KmsKeyArn: !FindInMap [KMSKeyArnPresignedLambdaMap, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Sub "${CodeCommitInfraJarsFolder}/${LambdaJarData}"
+      Handler: "com.comcast.vme.lambda.PresignedUrl::handleRequest"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: "java8"
+      #confirm this value
+      Timeout: 300
+      MemorySize: 512
+      TracingConfig:
+        Mode: "Active"
+      Environment:
+        Variables:
+          RawAdhocMediaBucket: !Sub "${LambdaEnvVarRawAdhocMediaBucket}"
+          RawMediaBucket: !Sub "${LambdaEnvVarRawMediaBucket}"
+          RawExcelBucket: !Sub "${LambdaEnvVarUnscannedDataBucket}"
+          RawCSVBucket: !Sub "${LambdaEnvVarUnscannedDataBucket}"
+          RawAdhocMediaDistributionDomainName: "override"
+          RawMediaDistributionDomainName: "override"
+          UnscannedDistributionDomainName: "override"
+          pemString: !FindInMap [CloudfrontDetailsMap, !Ref "AWS::AccountId","PemKeyString"]
+          KeyPairID: !FindInMap [CloudfrontDetailsMap, !Ref "AWS::AccountId","KeyPairId"]
+
+
+
+  LambdaVersionDataPresignedUrlV100: 
+    Type: "AWS::Lambda::Version"
+    # only for the first deploy
+    DeletionPolicy: Retain
+    Properties: 
+      Description: !Ref LambdaJarData
+      FunctionName: !Ref LambdaDataPresignedUrl
+  LambdaAliasDevDatAPresignedUrl:
+    Type: "AWS::Lambda::Alias"
+    Condition: IsNotProd
+    Properties:
+      FunctionName: !Ref LambdaDataPresignedUrl
+      FunctionVersion: $LATEST
+      Name: !Ref LambdaAliasDevName
+  LambdaAliasV100DatAPresignedUrl:
+    Type: "AWS::Lambda::Alias"
+    Properties:
+      FunctionName: !Ref LambdaDataPresignedUrl
+      FunctionVersion: !GetAtt LambdaVersionDataPresignedUrlV100.Version
+      Name: !Ref LambdaAliasV100Name
+  
+  
+
+      
+  ## * End Microservice Lambdas
+ #*************************************************************************************************************
+
+  ## * Start Lambdas on S3 Put ****
+  LambdaRunEcsTaskForFileScan:
+    Type: AWS::Lambda::Function
+    Properties: 
+      FunctionName: !Sub "${LambdaRunEcsTaskFileScanName}"
+      Handler: "lambda_function.lambda_handler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Sub "${CodeCommitInfraLambdaFolder}/${LambdaZipEcsTask}"
+      Runtime: "python3.7"
+      Timeout: 300
+      TracingConfig:
+       Mode: "Active"
+      Environment:
+        Variables:
+          CLUSTER_NAME: !Sub "${LambdaEnvVarClusterName}"
+          CONTAINER_NAME: !Sub "${LambdaEnvVarContainerName}"
+          DB_BUCKET_NAME: !Sub "${LambdaEnvVarDbBucketName}"
+          FILE_SCAN_REPORT_BUCKET: !Sub "${LambdaEnvVarFileScanRprtBucket}"
+          HEALTHY_BUCKET_NAME: !Sub "${LambdaEnvVarHealthyBucket}"
+          HEALTHY_ADHOC_BUCKET_NAME: !Sub "${LambdaEnvVarHealthyAdhocBucket}"
+          SECURITY_GROUP: !Sub "${LambdaEnvVarSecurityGroup}"
+          SUBNET_ID: !Sub "${LambdaEnvVarSubnetId}"
+          TASK_DEFINITION: !Sub "${LambdaEnvVarFileScanTaskDefinition}"
+  
+
+  LambdaRunEcsTaskForKinesisUpload:
+    Type: AWS::Lambda::Function
+    Properties: 
+      FunctionName: !Sub "${LambdaRunEcsTaskKinesisName}"
+      Handler: "lambda_function.lambda_handler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Sub "${CodeCommitInfraLambdaFolder}/${LambdaZipEcsKinesis}"
+      Runtime: "python3.7"
+      Timeout: 301
+      TracingConfig:
+       Mode: "Active"
+      Environment:
+        Variables:
+          CLUSTER_NAME: !Sub "${LambdaEnvVarClusterName}"
+          CONTAINER_NAME: !Sub "${LambdaEnvVarKinesisContainerName}"
+          kinesisAccessKey: !FindInMap [KinesisAccessKeyMap,!Ref "AWS::Region",!Ref "AWS::AccountId"]
+          SECURITY_GROUP: !Sub "${LambdaEnvVarSecurityGroup}"
+          SUBNET_ID: !Join [",",[!Sub "${LambdaEnvVarSubnetId}",!Sub "${LambdaEnvVarSubnet2Id}",!Sub "${LambdaEnvVarSubnet3Id}",!Sub "${LambdaEnvVarSubnet4Id}"]]
+          TASK_DEFINITION: !Sub "${LambdaEnvVarKinesisTaskDefinition}"
+          kinesisSecretKey: !FindInMap [KinesisSecretKeyMap,!Ref "AWS::Region",!Ref "AWS::AccountId"]
+          validatedCsvBucket: !Sub "${LambdaEnvVarValidatedCsvDataBucket}"
+          validatedExcelBucket: !Sub "${LambdaEnvVarValidatedExcelDataBucket}"
+          region: !FindInMap [LambdaEnvVarMap,LambdaVmeRunecsKinesisFromSqs,region]
+          recordsCount: !FindInMap [LambdaEnvVarMap,LambdaVmeRunecsKinesisFromSqs,recordsCount]
+          kinesisCloudWatchEndPoint: !FindInMap [LambdaEnvVarMap,LambdaVmeRunecsKinesisFromSqs,kinesisCloudWatchEndPoint]
+          kinesisStreamName: !FindInMap [LambdaEnvVarMap,LambdaVmeRunecsKinesisFromSqs,kinesisStreamName]
+          kinesisEndPoint: !FindInMap [LambdaEnvVarMap,LambdaVmeRunecsKinesisFromSqs,kinesisEndPoint]
+          kinesisRegion: !FindInMap [LambdaEnvVarMap,LambdaVmeRunecsKinesisFromSqs,kinesisRegion]
+  
+  LambdaRunEcsTaskFileValidation:
+    Type: AWS::Lambda::Function
+    Properties: 
+      FunctionName: !Sub "${LambdaRunEcsTaskValidationName}"
+      Handler: "lambda_function.lambda_handler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Sub "${CodeCommitInfraLambdaFolder}/${LambdaZipEcsValidation}"
+      Runtime: "python3.7"
+      Timeout: 300
+      TracingConfig:
+       Mode: "Active"
+      Environment:
+        Variables:
+          CLUSTER_NAME: !Sub "${LambdaEnvVarClusterName}"
+          CONTAINER_NAME: !Sub "${LambdaEnvVarValidationContainerName}"
+          SECURITY_GROUP: !Sub "${LambdaEnvVarSecurityGroup}"
+          SUBNET_ID: !Join [",",[!Sub "${LambdaEnvVarSubnetId}",!Sub "${LambdaEnvVarSubnet2Id}",!Sub "${LambdaEnvVarSubnet3Id}",!Sub "${LambdaEnvVarSubnet4Id}"]]
+          TASK_DEFINITION: !Sub "${LambdaEnvVarValidationTaskDefinition}"
+          validationReports: !Sub "${LambdaEnvVarValidationReportBucket}"
+          Percent: !FindInMap [LambdaEnvVarMap,LambdaVmeRunEcsValidationFromsqs,Percent]
+          RawCsvBucket: !Sub "${LambdaEnvVarRawCsvDataBucket}"
+          RawExcelBucket: !Sub "${LambdaEnvVarRawExcelDataBucket}"
+          SchemaBucket: !Sub "${LambdaEnvVarVendorSchemaFileBucket}"
+          SchemaCsvFileName: !FindInMap [LambdaEnvVarMap,LambdaVmeRunEcsValidationFromsqs,SchemaCsvFileName]
+          SchemaExcelFileName: !FindInMap [LambdaEnvVarMap,LambdaVmeRunEcsValidationFromsqs,SchemaExcelFileName]
+          ValidatedExcelBucket: !Sub "${LambdaEnvVarValidatedExcelDataBucket}"
+          ValidatedCsvBucket: !Sub "${LambdaEnvVarValidatedCsvDataBucket}"
+  
+  LambdaUpdateSnowAfterFileValidation:
+    Type: AWS::Lambda::Function
+    Properties: 
+      FunctionName: !Sub "${LambdaUpdateSnowAfterFileValidationName}"
+      Handler: "lambda_function.lambda_handler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Sub "${CodeCommitInfraLambdaFolder}/${LambdaZipUpdateSnowAfterValidation}"
+      Runtime: "python3.7"
+      Timeout: 300
+      TracingConfig:
+       Mode: "Active"
+      Environment:
+        Variables:
+          SNOW_URL: !FindInMap [SnowUrlMap, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+          SNOW_URL_HEADERS: ""
+          SNOW_URL_USER: !Sub "${LambdaEnvVarSnowUrlUserForValidation}"
+          SNOW_URL_PASS_SECRETNAME: !Join [ "-",[!Sub "${LambdaEnvVarSnowUrlPassSecretName}",!Ref "AWS::Region"]]
+          SNOW_URL_PASS_SECRET_KEY: !Sub "${LambdaEnvVarSnowUrlPassSecretName}"
+          SNS_TOPIC_ARN: !Sub "${LambdaEnvVarSnsTopicBatchValidation}"
+
+  LambdaUpdateSnowAfterFileScan:
+    Type: AWS::Lambda::Function
+    Properties: 
+      FunctionName: !Sub "${LambdaUpdateSnowAfterFileScanName}"
+      Handler: "lambda_function.lambda_handler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Sub "${CodeCommitInfraLambdaFolder}/${LambdaZipUpdateSnow}"
+      Runtime: "python3.7"
+      Timeout: 300
+      TracingConfig:
+       Mode: "Active"
+      Environment:
+        Variables:
+          SNOW_URL: !FindInMap [SnowUrlMap, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+          SNOW_URL_HEADERS: ""
+          SNOW_URL_USER: !Sub "${LambdaEnvVarSnowUrlUser}"
+          SNOW_URL_PASS_SECRETNAME: !Join [ "-",[!Sub "${LambdaEnvVarSnowUrlPassSecretName}",!Ref "AWS::Region"]]
+          SNOW_URL_PASS_SECRET_KEY: !Sub "${LambdaEnvVarSnowUrlPassSecretName}"
+          SNS_TOPIC_ARN: !Sub "${LambdaEnvVarSnsTopicBatch}"
+  
+  LambdaCleancompletedfilesfromsqs:
+    Type: AWS::Lambda::Function
+    Properties:      
+      FunctionName: "CleanCompletedFilesFromSQS"
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Join ["/",[!Sub "${CodeCommitInfraLambdaFolder}",!FindInMap [LambdaEnvVarMap,Common,LambdaZipCleancompletedfromsqs]]]
+      Handler: "lambda_function.lambda_handler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: "python3.6"
+      Timeout: 3
+      MemorySize: 128
+      TracingConfig:
+        Mode: "Active"
+      Environment:
+        Variables:
+          VirusScanQueueUrl: !Sub "${LambdaEnvVarVirusScanQueueUrl}"
+          CLUSTER_NAME: !Sub "${LambdaEnvVarClusterName}"
+          KinesisQueueUrl: !Sub "${LambdaEnvVarKinesisQueueUrl}"
+          ValidationQueueUrl: !Sub "${LambdaEnvVarValidationQueueUrl}"
+          visibilityTimeout: !FindInMap [LambdaEnvVarMap,LambdaCleancompletedfilesfromsqs,visibilityTimeout]
+          TaskCountThreshold: !FindInMap [LambdaEnvVarMap,Common,TaskCountThreshold]
+
+  
+  LambdaPutfilesinsqs:
+      Type: AWS::Lambda::Function
+      Properties:      
+        FunctionName: !Sub "${LambdaPutFilesInSQSName}"
+        Code: 
+          S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+          S3Key: !Join ["/",[!Sub "${CodeCommitInfraLambdaFolder}",!FindInMap [LambdaEnvVarMap,Common,LambdaZipPutFilesinSQS]]]
+        Handler: "lambda_function.lambda_handler"
+        Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+        Runtime: "python3.7"
+        Timeout: 300
+        MemorySize: 128
+        TracingConfig:
+          Mode: "Active"
+        Environment:
+          Variables:
+            VirusScanQueueUrl: !Sub "${LambdaEnvVarVirusScanQueueUrl}"
+            ValidationEcsLambda: !Sub "${LambdaRunEcsValidationFromSQSName}"
+            ValidationCsvBucket: !Sub "${LambdaEnvVarRawExcelDataBucket}"
+            KinesisCsvBucket: !Sub "${LambdaEnvVarValidatedCsvDataBucket}"
+            KinesisQueueUrl: !Sub "${LambdaEnvVarKinesisQueueUrl}"
+            KinesisEcsLambda: !Sub "${LambdaRunEcsKinesisFromSQSName}"
+            KinesisExcelBucket: !Sub "${LambdaEnvVarValidatedExcelDataBucket}"
+            ValidationQueueUrl: !Sub "${LambdaEnvVarValidationQueueUrl}"
+            ValidationExcelBucket: !Sub "${LambdaEnvVarRawCsvDataBucket}"
+            VirusScanBucket: !Sub "${LambdaEnvVarUnscannedDataBucket}"
+            VirusScanEcsLambda: !Sub "${LambdaRunEcsVirusScanFromSQSName}"
+
+
+  LambdaVmeRunecsfilescanData:
+    Type: AWS::Lambda::Function
+    Properties:      
+      FunctionName: !Sub "${LambdaRunEcsVirusScanFromSQSName}"
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Join ["/",[!Sub "${CodeCommitInfraLambdaFolder}",!FindInMap [LambdaEnvVarMap,Common,LambdaZipvmerunecsfilescandata]]]
+      Handler: "lambda_function.lambda_handler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: "python3.7"
+      Timeout: 300
+      MemorySize: 128
+      TracingConfig:
+        Mode: "Active"
+      Environment:
+        Variables:
+          SUBNET_ID: !Join [",",[!Sub "${LambdaEnvVarSubnetId}",!Sub "${LambdaEnvVarSubnet2Id}",!Sub "${LambdaEnvVarSubnet3Id}",!Sub "${LambdaEnvVarSubnet4Id}"]]
+          TaskCountThreshold: !FindInMap [LambdaEnvVarMap,Common,TaskCountThreshold]
+          CLUSTER_NAME: !Sub "${LambdaEnvVarClusterName}"
+          DB_BUCKET_NAME: !Sub "${LambdaEnvVarDbBucketName}"
+          HEALTHY_CSV_BUCKET_NAME: !Sub "${LambdaEnvVarRawCsvDataBucket}"
+          HEALTHY_EXCEL_BUCKET_NAME: !Sub "${LambdaEnvVarRawExcelDataBucket}"
+          SECURITY_GROUP: !Sub "${LambdaEnvVarSecurityGroup}"
+          TASK_DEFINITION: !Sub "${LambdaEnvVarFileScanTaskDefinition}"
+          FILE_SCAN_REPORT_BUCKET: !Sub "${LambdaEnvVarFileScanDataReportBucket}"
+          CONTAINER_NAME: !Sub "${LambdaEnvVarContainerName}"
+          visibilityTimeout: !FindInMap [LambdaEnvVarMap,Common,visibilityTimeout]
+          QueueUrl: !Sub "${LambdaEnvVarVirusScanQueueUrl}"
+
+
+
+  LambdaVmeRunEcsValidationFromsqs:
+    Type: AWS::Lambda::Function
+    Properties:      
+      FunctionName: !Sub "${LambdaRunEcsValidationFromSQSName}"
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Join ["/",[!Sub "${CodeCommitInfraLambdaFolder}",!FindInMap [LambdaEnvVarMap,Common,LambdaZipvmerunecsvalidationfromsqs]]]
+      Handler: "lambda_function.lambda_handler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: "python3.7"
+      Timeout: 300
+      MemorySize: 128
+      TracingConfig:
+        Mode: "Active"
+      Environment:
+        Variables:
+          SUBNET_ID: !Join [",",[!Sub "${LambdaEnvVarSubnetId}",!Sub "${LambdaEnvVarSubnet2Id}",!Sub "${LambdaEnvVarSubnet3Id}",!Sub "${LambdaEnvVarSubnet4Id}"]]
+          TaskCountThreshold: !FindInMap [LambdaEnvVarMap,Common,TaskCountThreshold]
+          CLUSTER_NAME: !Sub "${LambdaEnvVarClusterName}"
+          ValidatedExcelBucket: !Sub "${LambdaEnvVarValidatedExcelDataBucket}"
+          ValidatedCsvBucket: !Sub "${LambdaEnvVarValidatedCsvDataBucket}"
+          RawCsvBucket: !Sub "${LambdaEnvVarRawCsvDataBucket}"
+          SECURITY_GROUP: !Sub "${LambdaEnvVarSecurityGroup}"
+          TASK_DEFINITION: !Sub "${LambdaEnvVarValidationTaskDefinition}"
+          CONTAINER_NAME: !Sub "${LambdaEnvVarValidationContainerName}"
+          QueueUrl: !Sub "${LambdaEnvVarValidationQueueUrl}"
+          SchemaBucket: !Sub "${LambdaEnvVarVendorSchemaFileBucket}"
+          validationReports: !Sub "${LambdaEnvVarValidationReportBucket}"
+          RawExcelBucket: !Sub "${LambdaEnvVarRawExcelDataBucket}"
+          SchemaCsvFileName: !FindInMap [LambdaEnvVarMap,LambdaVmeRunEcsValidationFromsqs,SchemaCsvFileName]
+          SchemaExcelFileName: !FindInMap [LambdaEnvVarMap,LambdaVmeRunEcsValidationFromsqs,SchemaExcelFileName]
+          Percent: !FindInMap [LambdaEnvVarMap,LambdaVmeRunEcsValidationFromsqs,Percent]
+          visibilityTimeout: !FindInMap [LambdaEnvVarMap,Common,visibilityTimeout]
+
+
+  LambdaVmeRunecsKinesisFromSqs:
+    Type: AWS::Lambda::Function
+    Properties:      
+      FunctionName: "vme-runecs-kinesis-from-sqs"
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Join ["/",[!Sub "${CodeCommitInfraLambdaFolder}",!FindInMap [LambdaEnvVarMap,Common,LambdaZipvmerunecskinesisfromsqs]]]
+      Handler: "lambda_function.lambda_handler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: "python3.6"
+      Timeout: 300
+      MemorySize: 128
+      TracingConfig:
+        Mode: "Active"
+      Environment:
+        Variables:
+          SUBNET_ID: !Join [",",[!Sub "${LambdaEnvVarSubnetId}",!Sub "${LambdaEnvVarSubnet2Id}",!Sub "${LambdaEnvVarSubnet3Id}",!Sub "${LambdaEnvVarSubnet4Id}"]]
+          TaskCountThreshold: !FindInMap [LambdaEnvVarMap,Common,TaskCountThreshold]
+          validatedExcelBucket: !Sub "${LambdaEnvVarValidatedExcelDataBucket}"
+          CLUSTER_NAME: !Sub "${LambdaEnvVarClusterName}"
+          validatedCsvBucket: !Sub "${LambdaEnvVarValidatedCsvDataBucket}"
+          SECURITY_GROUP: !Sub "${LambdaEnvVarSecurityGroup}"
+          TASK_DEFINITION: !Sub "${LambdaEnvVarKinesisTaskDefinition}"
+          CONTAINER_NAME: !Sub "${LambdaEnvVarKinesisContainerName}"
+          kinesisSecretKey: !FindInMap [KinesisSecretKeyMap,!Ref "AWS::Region",!Ref "AWS::AccountId"]
+          QueueUrl: !Sub "${LambdaEnvVarKinesisQueueUrl}"
+          kinesisAccessKey: !FindInMap [KinesisAccessKeyMap,!Ref "AWS::Region",!Ref "AWS::AccountId"]
+          region: !FindInMap [LambdaEnvVarMap,LambdaVmeRunecsKinesisFromSqs,region]
+          recordsCount: !FindInMap [LambdaEnvVarMap,LambdaVmeRunecsKinesisFromSqs,recordsCount]
+          kinesisCloudWatchEndPoint: !FindInMap [LambdaEnvVarMap,LambdaVmeRunecsKinesisFromSqs,kinesisCloudWatchEndPoint]
+          kinesisStreamName: !FindInMap [LambdaEnvVarMap,LambdaVmeRunecsKinesisFromSqs,kinesisStreamName]
+          kinesisEndPoint: !FindInMap [LambdaEnvVarMap,LambdaVmeRunecsKinesisFromSqs,kinesisEndPoint]
+          kinesisRegion: !FindInMap [LambdaEnvVarMap,LambdaVmeRunecsKinesisFromSqs,kinesisRegion]
+          visibilityTimeout: !FindInMap [LambdaEnvVarMap,Common,visibilityTimeout]
+          UnscannedBucket: !Sub "${LambdaEnvVarUnscannedDataBucket}"
+          RawCsvBucket: !Sub "${LambdaEnvVarRawCsvDataBucket}"
+          RawExcelBucket: !Sub "${LambdaEnvVarRawExcelDataBucket}"
+
+  LambdaUpdateSnowAfterDataFileScan:
+    Type: AWS::Lambda::Function
+    Properties:      
+      FunctionName: "update-snow-after-data-file-scan"
+      Code: 
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Join ["/",[!Sub "${CodeCommitInfraLambdaFolder}",!FindInMap [LambdaEnvVarMap,Common,LambdaZipUpdateSnowAfterDataFileScan]]]
+      Handler: "lambda_function.lambda_handler"
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: "python3.6"
+      Timeout: 300
+      MemorySize: 128
+      TracingConfig:
+        Mode: "Active"
+      Environment:
+        Variables:
+          SNOW_URL: !FindInMap [SnowUrlMap, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+          SNOW_URL_HEADERS: ""
+          SNOW_URL_USER: !Sub "${LambdaEnvVarSnowUrlUserForValidation}"
+          SNOW_URL_PASS_SECRETNAME: !Join [ "-",[!Sub "${LambdaEnvVarSnowUrlPassSecretName}",!Ref "AWS::Region"]]
+          SNOW_URL_PASS_SECRET_KEY: !Sub "${LambdaEnvVarSnowUrlPassSecretName}"
+          SNS_TOPIC_ARN: !Sub "${LambdaEnvVarSnsTopicBatchValidation}"
+          RawExcelBucket: !Sub "${LambdaEnvVarRawExcelDataBucket}"
+          RawCsvBucket: !Sub "${LambdaEnvVarRawCsvDataBucket}"
+  ## * End Lambdas on S3 Put ****
+
+Outputs:
+  LambdaAliasDev:
+    Value: !Ref LambdaAliasDevName
+  LambdaAliasV1:
+    Value: !Ref LambdaAliasV100Name
+  LambdaUpdateSnowAfterDataFileScanNameOutput:
+    Value: !Ref LambdaUpdateSnowAfterDataFileScan
+  LambdaUpdateSnowAfterFileScanNameOutput:
+    Value: !Ref LambdaUpdateSnowAfterFileScanName
+  LambdaUpdateSnowAfterFileValidationNameOutput:
+    Value: !Ref LambdaUpdateSnowAfterFileValidationName
+  LambdaRunEcsTaskValidationNameOutput:
+    Value: !Ref LambdaRunEcsTaskValidationName
+  LambdaRunEcsTaskKinesisNameOutput:
+    Value: !Ref LambdaRunEcsTaskKinesisName
+  LambdaRunEcsTaskFileScanNameOutput:
+    Value: !Ref LambdaRunEcsTaskFileScanName
+  RunecsKinesisFromSqsName:
+    Value: !Ref LambdaVmeRunecsKinesisFromSqs
+  RunEcsValidationFromsqsName:
+    Value: !Ref LambdaVmeRunEcsValidationFromsqs
+  RunecsfilescanDataName:
+    Value: !Ref LambdaVmeRunecsfilescanData
+  LambdaPutfilesinsqsNameOutput:
+    Value: !Ref LambdaPutfilesinsqs
+  LambdaCleanupSqsOutput:
+    Value: !Ref LambdaCleancompletedfilesfromsqs
+ 
+
+  
+
+  
+  
+  

@@ -1,0 +1,581 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VME - CICD Infrastructure
+
+Parameters:
+  ToolingAccountId:
+    Type: String
+    Default: 853124603143
+  RoleLambdaExecutor:
+    Type: String
+    Default: OneCloud/LambdaCustomExecution
+  RoleCodeBuildService:
+    Type: String
+    Default: OneCloud/CodeBuildServiceRole
+  RoleCodePipelineService:
+    Type: String
+    Default: OneCloud/CodePipelineServiceRole
+  ProxyArtifactsZip:
+    Type: String
+    Default: vme.zip
+  ProxyJenkinsArtifactsZip:
+    Type: String
+    Default: vme-jenkins.zip
+  VMEGitHubUrl:
+    Type: String
+    Default: https://github.comcast.com/SATS/VME
+  JenkinsGitHubUrl:
+    Type: String
+    Default: https://github.comcast.com/vector-dt/cmfa-API-test_v1_3
+  # Upload GitHub Enterprise tokens to Secrets Manager manually, reference the secret name here.
+  # Note that when this param is used, /${AWS::Region} is appended.
+  # eg. dse-portal-ghe-fetch/ghe-token/us-east-1 will be the secret name.
+  SsmNameForGitHubToken:
+    Type: String
+    Default: vme-ghe-fetch/ghe-token
+  SsmSecretName:
+    Type: String
+    Default: GHE_TOKEN
+  SgVpcEndpoint:
+    Type: AWS::EC2::SecurityGroup::Id
+  GHEBuildSpec:
+    Type: String
+    Default: buildspec-ghe-proxy.yaml
+  JenkinsGHEBuildSpec:
+    Type: String
+    Default: buildspec-ghe-proxy-jenkins.yaml
+  LambdaBuildSpec:
+    Type: String
+    Default: buildspec-lambda-update.yaml
+  LambdaDeploySpec:
+    Type: String
+    Default: buildspec-lambda-deploy.yaml
+  FullRegTestSpec:
+    Type: String
+    Default: buildspec-full-regression.yaml
+  CICDEnvVar:
+    Type: String
+    Default: CICDPipelineEnvVar.sh
+  SonarQubeBuildSpec:
+    Type: String
+    Default: buildspec-sonarqube.yaml
+  CodeCommitInfraLambdaFolder:
+    Type: String
+    Default: lambdas
+  VectorUrl:
+    Type: String
+    Default: http://10.21.23.234:4202/cukeJSON
+  RegTestFileName:
+    Type: String
+    Default: vme.json
+
+Mappings:
+
+  ArtifactBucketNames:
+    us-east-1:
+      "612588860854": "codebuild-vme-artifacts-prod-us-east-1"
+      "999023218900": "codebuild-vme-artifacts-stg-us-east-1"
+      "833552741498": "codebuild-vme-artifacts-dev-us-east-1"  
+    us-west-2: 
+      "612588860854": "codebuild-vme-artifacts-prod-us-west-2"
+      "999023218900": "codebuild-vme-artifacts-stg-us-west-2"  
+
+  # GHE branch names for Lambda's code
+  VMEGheBranches:
+    us-east-1:
+      "612588860854": "master"
+      "999023218900": "stage"
+      "833552741498": "dev"  
+    us-west-2: 
+      "612588860854": "master"
+      "999023218900": "stage" 
+
+  # DX VPCs should be requested at the TPX Public Cloud Request portal. (One-time setup per account)
+  DXVpcIds:
+    us-east-1: 
+      "612588860854": "vpc-0ad28295532250e8d"
+      "999023218900": "vpc-09f55a82f55eacfe8"
+      "833552741498": "vpc-006d54650071ee8cf"
+    us-west-2: 
+      "612588860854": "vpc-0a2543841a1849163"
+      "999023218900": "vpc-0b6c6d0682f7a90a3"
+
+  # Create Subnets Manually, reference their IDs here. (One-time setup per account)
+  DXSubnet2Ids:
+    us-east-1: 
+      "612588860854": "subnet-053a7e3b82a0ed19a"
+      "999023218900": "subnet-0ea62961b9d24bab3"
+      "833552741498": "subnet-0cf4bef5320b66c2f"  
+    us-west-2: 
+     "612588860854": "subnet-09a5e85c59fc878a7"
+     "999023218900": "subnet-01091707b0457479e"
+  
+  APIGWEndpoints:
+    "612588860854":
+      "Endpoint": "https://api.vme.comcast.com"
+    "999023218900":
+      "Endpoint": "https://staging.vme.comcast.com"
+    "833552741498":
+      "Endpoint": "https://dev.vme.comcast.com"
+  
+  JenkinsGheBranches:
+    "612588860854":
+      "branch": "vme-regression"
+    "999023218900":
+      "branch": "vme-regression"
+    "833552741498":
+      "branch": "vme-regression"
+  
+  S3BucketMap: 
+    "us-east-1": 
+      "S3BucketLambdaJars": "vme-artifacts-us-east-1"
+    "us-west-2":      
+      "S3BucketLambdaJars": "vme-artifacts-us-west-2"
+
+
+Resources:
+  # Custom Lambda to empty out an S3 bucket so it gets deleted when the CFN
+  # stack is deleted.
+  LambdaEmptyS3BucketForDelete:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          from botocore.vendored import requests
+
+          def handler(event, context):
+              try:
+                  bucket = event['ResourceProperties']['BucketName']
+                  if event['RequestType'] == 'Delete':
+                      s3 = boto3.resource('s3')
+                      bucket = s3.Bucket(bucket)
+                      for obj in bucket.objects.filter():
+                          s3.Object(bucket.name, obj.key).delete()
+                      bucket.object_versions.all().delete()
+                  sendResponseCfn(event, context, "SUCCESS")
+              except Exception as e:
+                  print(e)
+                  sendResponseCfn(event, context, "FAILED")
+
+          def sendResponseCfn(event, context, responseStatus):
+              response_body = {'Status': responseStatus,
+                              'Reason': 'Log stream name: ' + context.log_stream_name,
+                              'PhysicalResourceId': context.log_stream_name,
+                              'StackId': event['StackId'],
+                              'RequestId': event['RequestId'],
+                              'LogicalResourceId': event['LogicalResourceId'],
+                              'Data': json.loads("{}")}
+              requests.put(event['ResponseURL'], data=json.dumps(response_body))
+      Handler: index.handler
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: python3.6
+      Timeout: 60  
+  CustomLambdaCleanupBucketOnDelete:
+    Type: Custom::CleanupBucketOnDelete
+    Properties:
+      ServiceToken:
+        Fn::GetAtt: [ LambdaEmptyS3BucketForDelete , "Arn" ]
+      BucketName: !Ref ArtifactBucket
+
+  # -- S3 bucket to store lambdas' code -- 
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !FindInMap [ArtifactBucketNames, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration: 
+          - ServerSideEncryptionByDefault: 
+              SSEAlgorithm: AES256
+
+  # -- CodeBuild for fetching latest code from GHE and pushing to S3 --
+  CodeBuildBuildProxyFetchGHECode:
+    Type: AWS::CodeBuild::Project
+    Properties: 
+      Artifacts: 
+        Type: S3
+        EncryptionDisabled: false
+        Location: !Ref ArtifactBucket
+        Name: "/"
+      Environment: 
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:2.0
+        PrivilegedMode: false
+        Type: LINUX_CONTAINER
+      LogsConfig: 
+        CloudWatchLogs:
+          GroupName: !Ref "AWS::StackName"
+          Status: ENABLED
+          StreamName: !Ref "AWS::StackName"
+      Name: "CodeBuildProxyFetchGHECode"
+      ServiceRole: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleCodeBuildService}"
+      Source: 
+        Location: !Ref VMEGitHubUrl
+        Type: GITHUB_ENTERPRISE
+        BuildSpec: !Ref GHEBuildSpec
+        Auth:
+          Type: OAUTH
+          Resource: !Sub "{{resolve:secretsmanager:${SsmNameForGitHubToken}/${AWS::Region}:SecretString:${SsmSecretName}}}"
+      SourceVersion: !FindInMap [VMEGheBranches, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+      VpcConfig: 
+        SecurityGroupIds: 
+          - !Ref SgVpcEndpoint
+        Subnets: 
+          - !FindInMap [DXSubnet2Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+        VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+
+  # -- CodeBuild for fetching latest code from GHE and pushing to S3 --
+  CodeBuildProxyFetchGHECodeJenkins:
+    Type: AWS::CodeBuild::Project
+    Properties: 
+      Artifacts: 
+        Type: S3
+        EncryptionDisabled: false
+        Location: !Ref ArtifactBucket
+        Name: "/"
+      Environment: 
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:2.0
+        PrivilegedMode: false
+        Type: LINUX_CONTAINER
+      LogsConfig: 
+        CloudWatchLogs:
+          GroupName: !Ref "AWS::StackName"
+          Status: ENABLED
+          StreamName: !Ref "AWS::StackName"
+      Name: "CodeBuildProxyFetchGHECodeJenkins"
+      ServiceRole: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleCodeBuildService}"
+      Source: 
+        Location: !Ref JenkinsGitHubUrl
+        Type: GITHUB_ENTERPRISE
+        BuildSpec: !Ref JenkinsGHEBuildSpec
+        Auth:
+          Type: OAUTH
+          Resource: !Sub "{{resolve:secretsmanager:${SsmNameForGitHubToken}/${AWS::Region}:SecretString:${SsmSecretName}}}"
+      SourceVersion: !FindInMap [JenkinsGheBranches, !Ref "AWS::AccountId", "branch"]
+      VpcConfig: 
+        SecurityGroupIds: 
+          - !Ref SgVpcEndpoint
+        Subnets: 
+          - !FindInMap [DXSubnet2Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+        VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+
+  CodeBuildUpdateLambdas:
+    Type: AWS::CodeBuild::Project
+    Properties: 
+      Artifacts: 
+        Type: S3
+        EncryptionDisabled: false
+        Location: !Ref ArtifactBucket
+        Name: "/"
+      Environment: 
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:2.0
+        PrivilegedMode: true
+        Type: LINUX_CONTAINER
+      LogsConfig: 
+        CloudWatchLogs:
+          GroupName: !Ref "AWS::StackName"
+          Status: ENABLED
+          StreamName: !Ref "AWS::StackName"
+      Name: "CodeBuildUpdateLambdas"
+      ServiceRole: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleCodeBuildService}"
+      Source: 
+        Location: !Sub "${ArtifactBucket}/${ProxyArtifactsZip}"
+        Type: S3
+        BuildSpec: !Ref LambdaBuildSpec
+
+  CodeBuildDeployLambdas:
+    Type: AWS::CodeBuild::Project
+    Properties: 
+      Artifacts: 
+        Type: S3
+        EncryptionDisabled: false
+        Location: !Ref ArtifactBucket
+        Name: "/"
+      Environment: 
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:2.0
+        PrivilegedMode: true
+        Type: LINUX_CONTAINER
+      LogsConfig: 
+        CloudWatchLogs:
+          GroupName: !Ref "AWS::StackName"
+          Status: ENABLED
+          StreamName: !Ref "AWS::StackName"
+      Name: "CodeBuildDeployLambdas"
+      ServiceRole: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleCodeBuildService}"
+      Source: 
+        Location: !Sub "${ArtifactBucket}/${ProxyArtifactsZip}"
+        Type: S3
+        BuildSpec: !Ref LambdaDeploySpec
+
+  CodeBuildFullRegressionTest:
+    Type: AWS::CodeBuild::Project
+    Properties: 
+      Artifacts: 
+        Type: S3
+        EncryptionDisabled: false
+        Location: !Ref ArtifactBucket
+        Name: !Ref ProxyJenkinsArtifactsZip
+      Environment: 
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:2.0
+        PrivilegedMode: true
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+        - Name: APIGWEndpoint
+          Value: !FindInMap [APIGWEndpoints, !Ref "AWS::AccountId", "Endpoint"]
+      LogsConfig: 
+        CloudWatchLogs:
+          GroupName: !Ref "AWS::StackName"
+          Status: ENABLED
+          StreamName: !Ref "AWS::StackName"
+      Name: "CodeBuildFullRegressionTest"
+      ServiceRole: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleCodeBuildService}"
+      Source: 
+        Location: !Sub "${ArtifactBucket}/${ProxyJenkinsArtifactsZip}"
+        Type: S3
+        BuildSpec: !Ref FullRegTestSpec
+
+  CodeBuildSonarQube:
+    Type: AWS::CodeBuild::Project
+    Properties: 
+      Artifacts: 
+        Type: S3
+        EncryptionDisabled: false
+        Location: !Ref ArtifactBucket
+        Name: "/"
+      Environment: 
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: !Sub "${ToolingAccountId}.dkr.ecr.us-west-2.amazonaws.com/comcast-artifactory:latest"
+        ImagePullCredentialsType: SERVICE_ROLE
+        PrivilegedMode: true
+        Type: LINUX_CONTAINER
+      LogsConfig: 
+        CloudWatchLogs:
+          GroupName: !Ref "AWS::StackName"
+          Status: ENABLED
+          StreamName: !Ref "AWS::StackName"
+      Name: "CodeBuildSonarQube"
+      ServiceRole: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleCodeBuildService}"
+      Source: 
+        Location: !Sub "${ArtifactBucket}/${ProxyArtifactsZip}"
+        Type: S3
+        BuildSpec: !Ref SonarQubeBuildSpec
+      VpcConfig: 
+        SecurityGroupIds: 
+          - !Ref SgVpcEndpoint
+        Subnets: 
+          - !FindInMap [DXSubnet2Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+        VpcId: !FindInMap [DXVpcIds, !Ref "AWS::Region", !Ref "AWS::AccountId"]
+
+  CodePipelineResource:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      ArtifactStore:
+        Location: !Ref ArtifactBucket
+        Type: S3
+      Name: VME-CodePipeline
+      RoleArn: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleCodePipelineService}" 
+      Stages:
+        -
+          Name: Source
+          Actions:
+            - ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: S3
+                Version: "1"
+              Configuration:
+                S3Bucket: !Ref ArtifactBucket
+                S3ObjectKey: !Ref ProxyArtifactsZip
+              Name: Source
+              OutputArtifacts:
+                -
+                  Name: S3ZipOutput
+            - ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: S3
+                Version: "1"
+              Configuration:
+                PollForSourceChanges: false
+                S3Bucket: !Ref ArtifactBucket
+                S3ObjectKey: !Ref ProxyJenkinsArtifactsZip
+              Name: JenkinsSource
+              OutputArtifacts:
+                -
+                  Name: S3ZipJenkinsOutput
+        -
+          Name: LambdaJarBuild
+          Actions:
+            - Name: ManualApproval
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Version: "1"
+                Provider: Manual
+              Configuration:
+                ExternalEntityLink: !Sub 
+                  - ${GHEUrl}/blob/${GHEBranch}/${FileName}
+                  - {GHEUrl: !Ref VMEGitHubUrl, GHEBranch: !FindInMap [VMEGheBranches, !Ref "AWS::Region", !Ref "AWS::AccountId"], FileName: !Ref CICDEnvVar}
+                CustomData: "Approve or Reject this change after reviewing buildspec and POM files"
+              RunOrder: 1
+            - Name: SonarQubeAnalysis
+              InputArtifacts:
+                - Name: S3ZipOutput
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: "1"
+                Provider: CodeBuild
+              OutputArtifacts:
+                - Name: CodeBuildSonarQubeOutput
+              Configuration:
+                ProjectName: !Ref CodeBuildSonarQube
+              RunOrder: 2
+            - Name: LambdaUpdate
+              InputArtifacts:
+                - Name: CodeBuildSonarQubeOutput
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: "1"
+                Provider: CodeBuild
+              OutputArtifacts:
+                -
+                  Name: CodeBuildUpdateLambdasOutput
+              Configuration:
+                ProjectName: !Ref CodeBuildUpdateLambdas
+              RunOrder: 3
+        -
+          Name: Testing
+          Actions:
+            - Name: FullRegressionTest
+              InputArtifacts:
+                - Name: S3ZipJenkinsOutput
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: "1"
+                Provider: CodeBuild
+              OutputArtifacts:
+                - Name: CodeBuildRegTestOutput
+              Configuration:
+                ProjectName: !Ref CodeBuildFullRegressionTest
+              RunOrder: 1
+            # - Name: PushResultsToVector
+            #   InputArtifacts:
+            #     - Name: CodeBuildRegTestOutput
+            #   ActionTypeId:
+            #     Category: Invoke
+            #     Owner: AWS
+            #     Version: "1"
+            #     Provider: Lambda
+            #   Configuration:
+            #     FunctionName: !Ref LambdaPushResultsToVector
+            #   RunOrder: 2
+        -
+          Name: LambdaJarDeploy
+          Actions:
+            - Name: LambdaJarDeploy
+              InputArtifacts:
+                - Name: CodeBuildUpdateLambdasOutput
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: "1"
+                Provider: CodeBuild
+              OutputArtifacts:
+                -
+                  Name: CodeBuildDeployLambdasOutput
+              Configuration:
+                ProjectName: !Ref CodeBuildDeployLambdas
+              RunOrder: 1
+
+  # Custom Lambda to start the build process of the new CodeBuild resource.
+  LambdaStartBuild:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: !Sub |
+          import boto3
+          import json
+          import cfnresponse
+          import time
+
+          def handler(event, context):
+            if event['RequestType'] == 'Delete':
+              return cfnresponse.send(event, context, cfnresponse.SUCCESS, {"status": "complete"})
+            else:
+              try:
+                client = boto3.client('codebuild')
+                # Hit CodeBuild that fetches code from GHE.
+                new_build = client.start_build(projectName="${CodeBuildBuildProxyFetchGHECode}")
+                buildId = new_build['build']['id']
+                counter = 0
+                while counter < 60:   #capped this, so it fails if it takes longer than 300s
+                    time.sleep(5)
+                    counter = counter + 1
+                    theBuild = client.batch_get_builds(ids=[buildId])
+                    buildStatus = theBuild['builds'][0]['buildStatus']
+                    # Once the first build is done (fetching GHE code), kick off the next
+                    # which performs the next fetch of code.
+                    if buildStatus == 'SUCCEEDED':
+                      new_build = client.start_build(projectName="${CodeBuildProxyFetchGHECodeJenkins}")
+                      buildId = new_build['build']['id']  # use the next CodeBuild as our default
+                      break
+                    elif buildStatus == 'FAILED' or buildStatus == 'FAULT' or buildStatus == 'STOPPED' or buildStatus == 'TIMED_OUT':
+                      return cfnresponse.send(event, context, cfnresponse.FAILED, {"status": "failed"})
+                counter = 0
+                while counter < 60:   #capped this, so it fails if it takes longer than 300s
+                  time.sleep(5)
+                  counter = counter + 1
+                  theBuild = client.batch_get_builds(ids=[buildId])
+                  buildStatus = theBuild['builds'][0]['buildStatus']
+                  # Once the second build is done (fetching GHE code), we're done.
+                  if buildStatus == 'SUCCEEDED':
+                    return cfnresponse.send(event, context, cfnresponse.SUCCESS, {"status": "complete"})
+                  elif buildStatus == 'FAILED' or buildStatus == 'FAULT' or buildStatus == 'STOPPED' or buildStatus == 'TIMED_OUT':
+                    return cfnresponse.send(event, context, cfnresponse.FAILED, {"status": "failed"})
+              counter = 0
+            except Exception as e:
+              return cfnresponse.send(event, context, cfnresponse.FAILED, {"status": "failed: " + str(e)})   
+            return cfnresponse.send(event, context, cfnresponse.FAILED, {"status": "failed for taking too long"})
+      Handler: index.handler
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: python3.6
+      Timeout: 900
+  
+  CustomLambdaStartBuild:
+    Type: Custom::InitFunction
+    Properties:
+      ServiceToken: !GetAtt LambdaStartBuild.Arn
+
+## Lambda for pushing the test results to Vector site
+  LambdaPushResultsToVector:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: "publishTestingResults"
+      Description: "Lambda for publishing the regression test results to vector site"
+      Handler: lambda_function.handler
+      Role: !Sub "arn:aws:iam::${AWS::AccountId}:role/${RoleLambdaExecutor}"
+      Runtime: python3.7
+      Timeout: 15
+      Code:
+        S3Bucket: !FindInMap [S3BucketMap, !Ref "AWS::Region", "S3BucketLambdaJars"]
+        S3Key: !Sub "${CodeCommitInfraLambdaFolder}/pushResultsToVector.py.zip"
+      TracingConfig:
+        Mode: "Active"
+      Environment:
+        Variables:
+          fileName: !Sub "${RegTestFileName}"
+          vectorUrl: !Sub "${VectorUrl}"
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref SgVpcEndpoint
+        SubnetIds:
+          - !FindInMap [DXSubnet2Ids, !Ref "AWS::Region", !Ref "AWS::AccountId"]

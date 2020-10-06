@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Code Pipeline Slack Notifier
+
+Parameters:
+  LambdaSlackExecutionRoleName:
+    Type: String
+    Default: LambdaSlackExecution 
+  SlackChannel:
+    Type: String
+    MinLength: 1
+    Default: "vme-pipeline-updates"
+  SlackBotName:
+    MinLength: 1
+    Type: String
+    Default: SATSCICDBot
+  SlackBotIcon:
+    MinLength: 1
+    Type: String
+    Default: ":robot_face:"
+  SsmSecretName:
+    Type: String
+    Default: vme-slack-api
+  SsmSlackKey:
+    Type: String
+    Default: SLACK_TOKEN
+  SsmBotKey:
+    Type: String
+    Default: SLACK_BOT_TOKEN
+  LambdaName:
+    Type: String
+    Default: codePipelineSlackNotifier
+    
+Mappings:
+  accountEnvMap:
+      "833552741498":
+        "EnvType": "DEV"
+      "999023218900":
+        "EnvType": "STAGING"
+      "612588860854":
+        "EnvType": "PROD"
+
+Conditions:
+  IsUSE1: !Equals [!Ref "AWS::Region", "us-east-1"]
+
+Resources:
+  ## CustomerManaged custom role
+  LambdaSlackExecutionRole:
+    Condition: IsUSE1
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+              - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/CustomerManaged/"
+      RoleName: !Ref LambdaSlackExecutionRoleName
+      PermissionsBoundary: !Sub "arn:aws:iam::${AWS::AccountId}:policy/BasicRole_Boundary"
+      ManagedPolicyArns:
+          - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+      Policies:
+      - PolicyName: LambdaSlackExecutionRolePolicy  
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+            - Effect: Allow
+              Action:
+                - 'codepipeline:Get*'
+                - 'codepipeline:List*'
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - 'codebuild:Get*'
+              Resource: '*'
+
+  Notifier:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${LambdaName}"
+      Runtime: python3.7
+      Timeout: 30
+      MemorySize: 256
+      CodeUri: s3://vme-artifacts-us-east-1/lambdas/pipelineSlackNotifier.py.zip
+      Handler: notifier.run
+      ReservedConcurrentExecutions: 1
+      Environment:
+        Variables:
+          SLACK_TOKEN: !Sub "{{resolve:secretsmanager:${SsmSecretName}/${AWS::Region}:SecretString:${SsmSlackKey}}}"
+          SLACK_BOT_TOKEN: !Sub "{{resolve:secretsmanager:${SsmSecretName}/${AWS::Region}:SecretString:${SsmBotKey}}}"
+          SLACK_BOT_NAME: !Ref SlackBotName
+          SLACK_BOT_ICON: !Ref SlackBotIcon
+          SLACK_CHANNEL: !Ref SlackChannel
+          SATS_ACCOUNT: !Join ["-",["VME",!FindInMap [accountEnvMap, !Ref "AWS::AccountId", "EnvType"]]]
+      Role: 
+        !If [IsUSE1, !GetAtt LambdaSlackExecutionRole.Arn, !Sub "arn:aws:iam::${AWS::AccountId}:role/CustomerManaged/${LambdaSlackExecutionRoleName}"]
+      Events:
+        CodePipelineEvent:
+          Type: CloudWatchEvent
+          Properties:
+            Pattern:
+              source:
+              - aws.codepipeline
+              - aws.codebuild
+              detail-type:
+              - CodePipeline Action Execution State Change
+              - CodePipeline Pipeline Execution State Change
+              - CodePipeline Stage Execution State Change
+              - CodeBuild Build State Change
+              - CodeBuild Build Phase Change
